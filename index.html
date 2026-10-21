@@ -254,7 +254,7 @@
 
   const DEFAULTS = {
     inhale: 5, exhale: 5, hoverScale: 2.5, autoFrom: 0.95, handover: 1.0, lead: 0.05,
-    glow: 1.0, edgeSoft: 0.2, startCue: 0.35, glitter: 1.0, sparkleSize: 0.2, sparkleDensity: 3, twinkle: 0.4,
+    glow: 1.0, edgeSoft: 0.2, startCue: 0.35, glitter: 1.0, flakeSize: 0.06, flakeDensity: 3, flakeLayers: 3, twinkle: 0.4,
   };
   const FIXED = {
     halfAngle: 0.87,      // arc spans +/- this many radians from vertical (matches the Unreal meshes)
@@ -274,8 +274,9 @@
     { group: "light", key: "edgeSoft", label: "Fade length", min: 0.02, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) },
     { group: "light", key: "startCue", label: "Start hint", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { group: "light", key: "glitter", label: "Glitter", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
-    { group: "light", key: "sparkleSize", label: "Flake size", min: 0.08, max: 0.22, step: 0.01, fmt: (v) => v.toFixed(2) },
-    { group: "light", key: "sparkleDensity", label: "Flake density", min: 1, max: 6, step: 0.5, fmt: (v) => v.toFixed(1) },
+    { group: "light", key: "flakeSize", label: "Flake size", min: 0.02, max: 0.15, step: 0.005, fmt: (v) => Math.round(v * 200) + "% of arch width" },
+    { group: "light", key: "flakeDensity", label: "Flake density", min: 1, max: 8, step: 0.5, fmt: (v) => v.toFixed(1) },
+    { group: "light", key: "flakeLayers", label: "Flake layers", min: 1, max: 3, step: 1, fmt: (v) => String(Math.round(v)) },
     { group: "light", key: "twinkle", label: "Flake spin", min: 0, max: 1.5, step: 0.05, fmt: (v) => v.toFixed(2) + " turns/s" },
   ];
 
@@ -355,7 +356,7 @@
   }
 
   const WGSL = /* wgsl */ `
-struct Uniforms { v : array<vec4f, 20> };
+struct Uniforms { v : array<vec4f, 21> };
 @group(0) @binding(0) var<uniform> U : Uniforms;
 
 @vertex
@@ -376,31 +377,41 @@ fn hash22(p : vec2f) -> vec2f {
 }
 fn sstep(x : f32) -> f32 { let c = clamp(x, 0.0, 1.0); return c * c * (3.0 - 2.0 * c); }
 
-// One glitter flake per cell: a small square tumbling about all three axes, projected onto the screen.
-// Returns (coverage, glint); the glint flashes when the flake's face lines up with the light.
-fn flake(g : vec2f, seed : f32, t : f32, twk : f32, size : f32, pxCell : f32) -> vec2f {
-  let cell = floor(g);
-  let f = fract(g);
-  let h1 = hash22(cell + vec2f(seed, 3.0));
-  let h2 = hash22(cell + vec2f(seed * 1.7, 11.0));
-  let q = f - (vec2f(0.35) + 0.3 * h1);
-  let spin = t * twk * 6.2831853;
-  let a = h2.x * 6.2831853 + spin * (0.6 + h1.x);
-  let b = h2.y * 6.2831853 + spin * (0.5 + h1.y);
-  let c = h1.x * 6.2831853 + spin * 0.3;
-  let ca = cos(a); let sa = sin(a); let cb = cos(b); let sb = sin(b); let cc = cos(c); let sc = sin(c);
-  let e1 = vec2f(cc * cb, sc * cb);
-  let e2 = vec2f(sa * sb * cc - ca * sc, sa * sb * sc + ca * cc);
-  let n = vec3f(ca * sb * cc + sa * sc, ca * sb * sc - sa * cc, ca * cb);
-  let det = e1.x * e2.y - e1.y * e2.x;
-  let sdet = select(det, 0.0001, abs(det) < 0.0001);
-  let u = (q.x * e2.y - q.y * e2.x) / sdet;
-  let v = (e1.x * q.y - e1.y * q.x) / sdet;
-  let s = min(size * (0.7 + 0.5 * h2.x), 0.24); // a fully turned flake must still fit inside its cell
-  let aa = pxCell / max(abs(det), 0.15);
-  let cover = (1.0 - smoothstep(s - aa, s + aa, abs(u))) * (1.0 - smoothstep(s - aa, s + aa, abs(v)));
+// One layer of glitter: most cells hold one flake placed anywhere in the cell (some cells stay empty,
+// so no grid shows). Each flake is a small square tumbling about all three axes, projected onto the
+// screen. The 2x2 cells nearest to g are checked, so flakes may cross cell borders.
+// Returns (coverage, glint); the glint flashes when a flake's face lines up with the light.
+fn flakeLayer(g : vec2f, seed : f32, t : f32, twk : f32, sizeCells : f32, pxCell : f32) -> vec2f {
+  let base = floor(g - vec2f(0.5));
   let hv = normalize(normalize(vec3f(-0.35, -0.55, 1.0)) + vec3f(0.0, 0.0, 1.0));
-  return vec2f(cover, pow(abs(dot(n, hv)), 28.0));
+  var cover = 0.0;
+  var glint = 0.0;
+  for (var j = 0; j < 4; j = j + 1) {
+    let cell = base + vec2f(f32(j % 2), f32(j / 2));
+    let h0 = hash22(cell + vec2f(seed, 5.0));
+    if (h0.x > 0.72) { continue; }
+    let h1 = hash22(cell + vec2f(seed, 3.0));
+    let h2 = hash22(cell + vec2f(seed * 1.7, 11.0));
+    let q = g - (cell + h1);
+    let spin = t * twk * 6.2831853 * (0.6 + 0.8 * h0.y);
+    let a = h2.x * 6.2831853 + spin * (0.6 + h1.x);
+    let b = h2.y * 6.2831853 + spin * (0.5 + h1.y);
+    let c = h1.x * 6.2831853 + spin * 0.3;
+    let ca = cos(a); let sa = sin(a); let cb = cos(b); let sb = sin(b); let cc = cos(c); let sc = sin(c);
+    let e1 = vec2f(cc * cb, sc * cb);
+    let e2 = vec2f(sa * sb * cc - ca * sc, sa * sb * sc + ca * cc);
+    let n = vec3f(ca * sb * cc + sa * sc, ca * sb * sc - sa * cc, ca * cb);
+    let det = e1.x * e2.y - e1.y * e2.x;
+    let sdet = select(det, 0.0001, abs(det) < 0.0001);
+    let u = (q.x * e2.y - q.y * e2.x) / sdet;
+    let v = (e1.x * q.y - e1.y * q.x) / sdet;
+    let s = min(sizeCells * (0.6 + 0.7 * h2.x), 0.35); // a turned flake must stay within half a cell
+    let aa = pxCell / max(abs(det), 0.15);
+    let cv = (1.0 - smoothstep(s - aa, s + aa, abs(u))) * (1.0 - smoothstep(s - aa, s + aa, abs(v)));
+    cover = max(cover, cv);
+    glint = max(glint, cv * pow(abs(dot(n, hv)), 28.0));
+  }
+  return vec2f(cover, glint);
 }
 
 fn background(p : vec2f, res : vec2f, t : f32, dpr : f32) -> vec3f {
@@ -435,6 +446,7 @@ fn fs(@builtin(position) fc : vec4f) -> @location(0) vec4f {
   let glow = U.v[3].x; let edgeGlow = U.v[3].y; let dim = U.v[3].z; let startCue = U.v[3].w;
   let cueRamp = max(U.v[4].x, 0.001); let glitter = U.v[4].y; let sSize = max(U.v[4].z, 0.01); let sDens = max(U.v[4].w, 0.5);
   let twk = U.v[5].x; let drift = U.v[5].y; let white = U.v[5].z; let halo = U.v[5].w;
+  let layers = U.v[20].x;
 
   var col = background(p, res, t, dpr);
   let d = p - c;
@@ -474,9 +486,21 @@ fn fs(@builtin(position) fc : vec4f) -> @location(0) vec4f {
     let em = ac * (lit * glow + head * edgeGlow);
     var gl3 = vec3f(0.0);
     if (mask > 0.0 && lit > 0.001 && glitter > 0.0) {
-      let g = vec2f(alongPx / w + t * drift, acrossPx / w) * sDens;
-      let fl = flake(g, f32(i) * 17.0, t, twk, sSize, sDens / w);
-      gl3 = mix(ac, vec3f(1.0), white) * (fl.x * (0.18 + 3.2 * fl.y) * lit * glitter * hgt);
+      // up to three layers; deeper layers have more, smaller, dimmer, slower flakes on differently rotated grids
+      let lp = vec2f(alongPx / w, acrossPx / w);
+      var sparkle = 0.0;
+      for (var k = 0; k < 3; k = k + 1) {
+        let fk = f32(k);
+        if (fk >= layers) { break; }
+        let dens = sDens * (1.0 + 0.35 * fk);
+        let drifted = lp + vec2f(t * drift * (1.0 - 0.3 * fk), 0.0);
+        let rot = 0.2 + 0.61 * fk;
+        let cr = cos(rot); let sr = sin(rot);
+        let g = vec2f(cr * drifted.x - sr * drifted.y, sr * drifted.x + cr * drifted.y) * dens + vec2f(13.7 * fk, 5.3 * fk);
+        let fl = flakeLayer(g, f32(i) * 17.0 + fk * 101.0, t, twk, sSize * (1.0 - 0.22 * fk) * dens, dens / w);
+        sparkle = sparkle + (fl.x * 0.18 + fl.y * 3.2) * (1.0 - 0.25 * fk);
+      }
+      gl3 = mix(ac, vec3f(1.0), white) * (sparkle * lit * glitter * hgt);
     }
     col = mix(col, base + em + gl3, mask);
     let outside = max(dist - hw, 0.0);
@@ -494,7 +518,7 @@ void main() {
 
   const GLSL_FS = `#version 300 es
 precision highp float;
-uniform vec4 u[20];
+uniform vec4 u[21];
 out vec4 outColor;
 
 float hash12(vec2 p) {
@@ -509,31 +533,41 @@ vec2 hash22(vec2 p) {
 }
 float sstep(float x) { float c = clamp(x, 0.0, 1.0); return c * c * (3.0 - 2.0 * c); }
 
-// One glitter flake per cell: a small square tumbling about all three axes, projected onto the screen.
-// Returns (coverage, glint); the glint flashes when the flake's face lines up with the light.
-vec2 flake(vec2 g, float seed, float t, float twk, float size, float pxCell) {
-  vec2 cell = floor(g);
-  vec2 f = fract(g);
-  vec2 h1 = hash22(cell + vec2(seed, 3.0));
-  vec2 h2 = hash22(cell + vec2(seed * 1.7, 11.0));
-  vec2 q = f - (vec2(0.35) + 0.3 * h1);
-  float spin = t * twk * 6.2831853;
-  float a = h2.x * 6.2831853 + spin * (0.6 + h1.x);
-  float b = h2.y * 6.2831853 + spin * (0.5 + h1.y);
-  float c = h1.x * 6.2831853 + spin * 0.3;
-  float ca = cos(a), sa = sin(a), cb = cos(b), sb = sin(b), cc = cos(c), sc = sin(c);
-  vec2 e1 = vec2(cc * cb, sc * cb);
-  vec2 e2 = vec2(sa * sb * cc - ca * sc, sa * sb * sc + ca * cc);
-  vec3 n = vec3(ca * sb * cc + sa * sc, ca * sb * sc - sa * cc, ca * cb);
-  float det = e1.x * e2.y - e1.y * e2.x;
-  float sdet = abs(det) < 0.0001 ? 0.0001 : det;
-  float u = (q.x * e2.y - q.y * e2.x) / sdet;
-  float v = (e1.x * q.y - e1.y * q.x) / sdet;
-  float s = min(size * (0.7 + 0.5 * h2.x), 0.24); // a fully turned flake must still fit inside its cell
-  float aa = pxCell / max(abs(det), 0.15);
-  float cover = (1.0 - smoothstep(s - aa, s + aa, abs(u))) * (1.0 - smoothstep(s - aa, s + aa, abs(v)));
+// One layer of glitter: most cells hold one flake placed anywhere in the cell (some cells stay empty,
+// so no grid shows). Each flake is a small square tumbling about all three axes, projected onto the
+// screen. The 2x2 cells nearest to g are checked, so flakes may cross cell borders.
+// Returns (coverage, glint); the glint flashes when a flake's face lines up with the light.
+vec2 flakeLayer(vec2 g, float seed, float t, float twk, float sizeCells, float pxCell) {
+  vec2 base = floor(g - vec2(0.5));
   vec3 hv = normalize(normalize(vec3(-0.35, -0.55, 1.0)) + vec3(0.0, 0.0, 1.0));
-  return vec2(cover, pow(abs(dot(n, hv)), 28.0));
+  float cover = 0.0;
+  float glint = 0.0;
+  for (int j = 0; j < 4; j++) {
+    vec2 cell = base + vec2(float(j % 2), float(j / 2));
+    vec2 h0 = hash22(cell + vec2(seed, 5.0));
+    if (h0.x > 0.72) continue;
+    vec2 h1 = hash22(cell + vec2(seed, 3.0));
+    vec2 h2 = hash22(cell + vec2(seed * 1.7, 11.0));
+    vec2 q = g - (cell + h1);
+    float spin = t * twk * 6.2831853 * (0.6 + 0.8 * h0.y);
+    float a = h2.x * 6.2831853 + spin * (0.6 + h1.x);
+    float b = h2.y * 6.2831853 + spin * (0.5 + h1.y);
+    float c = h1.x * 6.2831853 + spin * 0.3;
+    float ca = cos(a), sa = sin(a), cb = cos(b), sb = sin(b), cc = cos(c), sc = sin(c);
+    vec2 e1 = vec2(cc * cb, sc * cb);
+    vec2 e2 = vec2(sa * sb * cc - ca * sc, sa * sb * sc + ca * cc);
+    vec3 n = vec3(ca * sb * cc + sa * sc, ca * sb * sc - sa * cc, ca * cb);
+    float det = e1.x * e2.y - e1.y * e2.x;
+    float sdet = abs(det) < 0.0001 ? 0.0001 : det;
+    float u = (q.x * e2.y - q.y * e2.x) / sdet;
+    float v = (e1.x * q.y - e1.y * q.x) / sdet;
+    float s = min(sizeCells * (0.6 + 0.7 * h2.x), 0.35); // a turned flake must stay within half a cell
+    float aa = pxCell / max(abs(det), 0.15);
+    float cv = (1.0 - smoothstep(s - aa, s + aa, abs(u))) * (1.0 - smoothstep(s - aa, s + aa, abs(v)));
+    cover = max(cover, cv);
+    glint = max(glint, cv * pow(abs(dot(n, hv)), 28.0));
+  }
+  return vec2(cover, glint);
 }
 
 vec3 background(vec2 p, vec2 res, float t, float dpr) {
@@ -567,6 +601,7 @@ void main() {
   float glow = u[3].x; float edgeGlow = u[3].y; float dim = u[3].z; float startCue = u[3].w;
   float cueRamp = max(u[4].x, 0.001); float glitter = u[4].y; float sSize = max(u[4].z, 0.01); float sDens = max(u[4].w, 0.5);
   float twk = u[5].x; float drift = u[5].y; float white = u[5].z; float halo = u[5].w;
+  float layers = u[20].x;
 
   vec3 col = background(p, res, t, dpr);
   vec2 d = p - c;
@@ -606,9 +641,21 @@ void main() {
     vec3 em = ac * (lit * glow + head * edgeGlow);
     vec3 gl3 = vec3(0.0);
     if (mask > 0.0 && lit > 0.001 && glitter > 0.0) {
-      vec2 g = vec2(alongPx / w + t * drift, acrossPx / w) * sDens;
-      vec2 fl = flake(g, float(i) * 17.0, t, twk, sSize, sDens / w);
-      gl3 = mix(ac, vec3(1.0), white) * (fl.x * (0.18 + 3.2 * fl.y) * lit * glitter * hgt);
+      // up to three layers; deeper layers have more, smaller, dimmer, slower flakes on differently rotated grids
+      vec2 lp = vec2(alongPx / w, acrossPx / w);
+      float sparkle = 0.0;
+      for (int k = 0; k < 3; k++) {
+        float fk = float(k);
+        if (fk >= layers) break;
+        float dens = sDens * (1.0 + 0.35 * fk);
+        vec2 drifted = lp + vec2(t * drift * (1.0 - 0.3 * fk), 0.0);
+        float rot = 0.2 + 0.61 * fk;
+        float cr = cos(rot), sr = sin(rot);
+        vec2 g = vec2(cr * drifted.x - sr * drifted.y, sr * drifted.x + cr * drifted.y) * dens + vec2(13.7 * fk, 5.3 * fk);
+        vec2 fl = flakeLayer(g, float(i) * 17.0 + fk * 101.0, t, twk, sSize * (1.0 - 0.22 * fk) * dens, dens / w);
+        sparkle += (fl.x * 0.18 + fl.y * 3.2) * (1.0 - 0.25 * fk);
+      }
+      gl3 = mix(ac, vec3(1.0), white) * (sparkle * lit * glitter * hgt);
     }
     col = mix(col, base + em + gl3, mask);
     float outside = max(dist - hw, 0.0);
@@ -617,7 +664,7 @@ void main() {
   outColor = vec4(finishColor(col + bloom), 1.0);
 }`;
 
-  const U = new Float32Array(20 * 4);
+  const U = new Float32Array(21 * 4);
 
   async function initWebGPU(cv) {
     if (!navigator.gpu) return null;
@@ -813,7 +860,8 @@ void main() {
     U.set([L.cx * k, L.cy * k, L.R0 * k, L.w * k], 4);
     U.set([L.sp * k, L.H, S.edgeSoft, FIXED.edgeWidth], 8);
     U.set([S.glow, FIXED.edgeGlow, FIXED.dim, S.startCue], 12);
-    U.set([FIXED.cueRamp, S.glitter, S.sparkleSize, S.sparkleDensity], 16);
+    U.set([FIXED.cueRamp, S.glitter, S.flakeSize, S.flakeDensity], 16);
+    U.set([S.flakeLayers, 0, 0, 0], 80);
     U.set([reduceMotion ? S.twinkle * 0.4 : S.twinkle, reduceMotion ? 0 : FIXED.drift, FIXED.whiteness, FIXED.halo], 20);
     for (let i = 0; i < N; i++) {
       const c = ARCH_COLORS[i];
