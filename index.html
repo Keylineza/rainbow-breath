@@ -230,6 +230,7 @@
 <section class="drawer" id="drawer" aria-label="Tuning" hidden>
   <p class="engine">Developer tuning. Changes are saved on this device only; visitors always get the built-in values. Use Copy tuning to send values to make them the default.</p>
   <div class="group" id="group-breath"><h2>Breathing</h2></div>
+  <div class="group" id="group-shape"><h2>Shape</h2></div>
   <div class="group" id="group-light"><h2>Light</h2></div>
   <div class="actions">
     <button type="button" class="primary" id="restart">Start over</button>
@@ -254,12 +255,11 @@
 
   const DEFAULTS = {
     inhale: 5, exhale: 5, hoverScale: 2.5, autoFrom: 0.95, handover: 1.0, lead: 0.05,
+    span: 0.55, thickness: 0.075,
     glow: 1.0, edgeSoft: 0.2, startCue: 0.35, glitter: 1.0, flakeSize: 0.06, flakeDensity: 3, flakeLayers: 3, twinkle: 0.4,
   };
   const FIXED = {
-    halfAngle: 0.87,      // arc spans +/- this many radians from vertical (matches the Unreal meshes)
-    tube: 0.06,           // tube thickness as a fraction of the outer radius
-    spacing: 0.062,       // centre-line spacing between arches, fraction of the outer radius
+    spacingRatio: 1.04,   // centre-line spacing between arches, as a multiple of the tube thickness (arches just touch)
     edgeWidth: 0.08, edgeGlow: 2.0, dim: 0.35, cueRamp: 0.1, drift: 0.15, whiteness: 0.6, halo: 0.8,
     drainSeconds: 1.4,
   };
@@ -270,6 +270,8 @@
     { group: "breath", key: "lead", label: "Light runs ahead of finger by", min: 0, max: 1, step: 0.01, fmt: (v) => (v >= 1 ? "any (timer only)" : Math.round(v * 100) + "%") },
     { group: "breath", key: "autoFrom", label: "Finish on its own from", min: 0.8, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + "%" },
     { group: "breath", key: "handover", label: "Hand-over fade", min: 0, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + " s" },
+    { group: "shape", key: "span", label: "Arch length", min: 0.4, max: 1.2, step: 0.01, fmt: (v) => Math.round((v * 360) / Math.PI) + "° of arc" },
+    { group: "shape", key: "thickness", label: "Arch thickness (max)", min: 0.04, max: 0.13, step: 0.005, fmt: (v) => (v * 100).toFixed(1) + "% of rainbow size" },
     { group: "light", key: "glow", label: "Glow", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
     { group: "light", key: "edgeSoft", label: "Fade length", min: 0.02, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) },
     { group: "light", key: "startCue", label: "Start hint", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
@@ -334,7 +336,17 @@
     const m = 14;
     const left = ins.l + m, right = W - ins.r - m, top = ins.t + m, bottom = Hh - ins.b - m;
     const AW = Math.max(50, right - left), AH = Math.max(50, bottom - top);
-    const H = FIXED.halfAngle, a = FIXED.tube, b = FIXED.spacing;
+    const H = S.span, k = FIXED.spacingRatio;
+    // Fill the width, and make the bands as thick as S.thickness allows; on short (landscape phone)
+    // screens thin them just enough for all seven to fit the height. The rainbow's height is
+    // R0 * ((1 - cos H) + a * (1 + (N - 1) * k * cos H)), so solve for the largest a that fits.
+    let a = S.thickness;
+    for (let it = 0; it < 6; it++) {
+      const R0w = AW / (2 * Math.sin(H) + a);
+      const aFit = (AH / R0w - (1 - Math.cos(H))) / (1 + (N - 1) * k * Math.cos(H));
+      a = Math.max(0.02, Math.min(S.thickness, aFit));
+    }
+    const b = a * k;
     const hFactor = 1 + a - (1 - (N - 1) * b) * Math.cos(H);
     const R0 = Math.min(AW / (2 * Math.sin(H) + a), AH / hFactor);
     const w = a * R0, sp = b * R0;
@@ -342,7 +354,8 @@
     const cy = top + (AH - R0 * hFactor) / 2 + R0 * (1 + a / 2);
     const Rin = R0 - (N - 1) * sp;
     L = { cx, cy, R0, w, sp, H, R: Array.from({ length: N }, (_, i) => R0 - i * sp),
-          captionY: cy - (Rin - w / 2 + Rin * Math.cos(H)) / 2, portraitSmall: w < 16 && Hh > W };
+          portraitSmall: w < 26 && Hh > W };
+    placeCaption();
   }
 
   // ---------- canvas + renderers ----------
@@ -881,8 +894,28 @@ void main() {
     if (!game.started && i === 0) return "Trace the glowing arch · breathe in";
     return isInhale(i) ? "breathe in" : "breathe out";
   }
+  // Nest the caption just under the violet arch: pick the highest position where the text box's
+  // top corners stay inside the arch's inner edge, shrinking the font if it would not fit.
+  function placeCaption() {
+    if (!L) return;
+    const inner = L.R[N - 1] - L.w / 2 - 6;
+    const bottomLimit = window.innerHeight - readInsets().b - 8;
+    let size = Math.min(32, Math.max(18, Math.min(window.innerWidth, window.innerHeight) * 0.06));
+    for (let tries = 0; tries < 8; tries++) {
+      captionEl.style.fontSize = size.toFixed(1) + "px";
+      const r = captionEl.getBoundingClientRect();
+      const halfW = r.width / 2, h = r.height;
+      if (inner > halfW) {
+        const y = L.cy + h / 2 - Math.sqrt(inner * inner - halfW * halfW) + 4;
+        if (y + h / 2 <= bottomLimit) { captionEl.style.top = y + "px"; return; }
+      }
+      size *= 0.85;
+    }
+    captionEl.style.top = (bottomLimit - 16) + "px";
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeCaption);
+
   function updateCaption() {
-    if (L) captionEl.style.top = L.captionY + "px";
     const want = wantedCaption();
     if (want !== shownCaption && want !== pendingCaption) {
       pendingCaption = want;
@@ -892,6 +925,7 @@ void main() {
         shownCaption = pendingCaption;
         pendingCaption = null;
         captionEl.textContent = shownCaption;
+        placeCaption();
         captionEl.style.opacity = shownCaption ? "1" : "0";
       }, reduceMotion ? 0 : 450);
     }
@@ -920,8 +954,9 @@ void main() {
         S[c.key] = parseFloat(input.value);
         out.textContent = c.fmt(S[c.key]);
         saveSettings();
+        if (c.group === "shape") computeLayout();
       });
-      document.getElementById(c.group === "breath" ? "group-breath" : "group-light").appendChild(row);
+      document.getElementById("group-" + c.group).appendChild(row);
     }
   }
   function syncControls() {
@@ -936,7 +971,7 @@ void main() {
   });
   document.getElementById("restart").addEventListener("click", () => { restart(); });
   document.getElementById("restart-now").addEventListener("click", () => { restart(); });
-  document.getElementById("reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); syncControls(); });
+  document.getElementById("reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); syncControls(); computeLayout(); });
   const copyBtn = document.getElementById("copy-tuning");
   copyBtn.addEventListener("click", () => {
     const text = JSON.stringify(S);
