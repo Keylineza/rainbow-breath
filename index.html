@@ -253,7 +253,7 @@
   const isInhale = (i) => i % 2 === 0;
 
   const DEFAULTS = {
-    inhale: 5, exhale: 5, hoverScale: 2.5, autoFrom: 0.95, handover: 1.0,
+    inhale: 5, exhale: 5, hoverScale: 2.5, autoFrom: 0.95, handover: 1.0, lead: 0.05,
     glow: 1.0, edgeSoft: 0.2, startCue: 0.35, glitter: 1.0, sparkleSize: 0.32, sparkleDensity: 4, twinkle: 0.5,
   };
   const FIXED = {
@@ -267,6 +267,7 @@
     { group: "breath", key: "inhale", label: "Breathe in", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
     { group: "breath", key: "exhale", label: "Breathe out", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
     { group: "breath", key: "hoverScale", label: "Finger zone", min: 1, max: 5, step: 0.1, fmt: (v) => v.toFixed(1) + "×" },
+    { group: "breath", key: "lead", label: "Light runs ahead of finger by", min: 0, max: 1, step: 0.01, fmt: (v) => (v >= 1 ? "any (timer only)" : Math.round(v * 100) + "%") },
     { group: "breath", key: "autoFrom", label: "Finish on its own from", min: 0.8, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + "%" },
     { group: "breath", key: "handover", label: "Hand-over fade", min: 0, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + " s" },
     { group: "light", key: "glow", label: "Glow", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
@@ -419,8 +420,14 @@ fn fs(@builtin(position) fc : vec4f) -> @location(0) vec4f {
     let P = st.x;
     let act = st.y;
     let R = R0 - f32(i) * sp;
-    let q = c + R * vec2f(sin(angC), -cos(angC));
-    let dist = length(p - q);
+    let radial = vec2f(sin(angC), -cos(angC));
+    let tangent = vec2f(cos(angC), sin(angC));
+    let q = c + R * radial;
+    let rel = p - q;
+    let dist = length(rel);
+    // arch-local coordinates that keep running into the rounded end caps (no smearing past the ends)
+    let alongPx = angC * R + dot(rel, tangent);
+    let acrossPx = dot(rel, radial);
     let mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, dist);
     var s = (angC + H) / (2.0 * H);
     s = mix(s, 1.0 - s, cd.w);
@@ -429,14 +436,14 @@ fn fs(@builtin(position) fc : vec4f) -> @location(0) vec4f {
     let hc = clamp(Pp - 0.5 * E, 0.0, 1.0);
     let cue = mix(startCue, 1.0, sstep(P / cueRamp));
     let head = sstep(1.0 - abs(hc - s) / EW) * act * cue;
-    let nAcross = clamp((r - R) / hw, -1.0, 1.0);
+    let nAcross = clamp(acrossPx / hw, -1.0, 1.0);
     let nn = clamp(dist / hw, 0.0, 1.0);
     let hgt = sqrt(max(1.0 - nn * nn, 0.0));
     let shade = 0.42 + 0.58 * hgt;
     let spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
     let base = ac * mix(dim, 1.0, lit) * shade + vec3f(spec * mix(0.12, 0.4, lit));
     let em = ac * (lit * glow + head * edgeGlow);
-    let g = vec2f(angC * R / w + t * drift, (r - R) / w) * sDens;
+    let g = vec2f(alongPx / w + t * drift, acrossPx / w) * sDens;
     let cell = floor(g);
     let f = fract(g);
     let jp = vec2f(0.2) + 0.6 * hash22(cell + vec2f(f32(i) * 17.0, 3.0));
@@ -520,8 +527,14 @@ void main() {
     float P = st.x;
     float act = st.y;
     float R = R0 - float(i) * sp;
-    vec2 q = c + R * vec2(sin(angC), -cos(angC));
-    float dist = length(p - q);
+    vec2 radial = vec2(sin(angC), -cos(angC));
+    vec2 tangent = vec2(cos(angC), sin(angC));
+    vec2 q = c + R * radial;
+    vec2 rel = p - q;
+    float dist = length(rel);
+    // arch-local coordinates that keep running into the rounded end caps (no smearing past the ends)
+    float alongPx = angC * R + dot(rel, tangent);
+    float acrossPx = dot(rel, radial);
     float mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, dist);
     float s = (angC + H) / (2.0 * H);
     s = mix(s, 1.0 - s, cd.w);
@@ -530,14 +543,14 @@ void main() {
     float hc = clamp(Pp - 0.5 * E, 0.0, 1.0);
     float cue = mix(startCue, 1.0, sstep(P / cueRamp));
     float head = sstep(1.0 - abs(hc - s) / EW) * act * cue;
-    float nAcross = clamp((r - R) / hw, -1.0, 1.0);
+    float nAcross = clamp(acrossPx / hw, -1.0, 1.0);
     float nn = clamp(dist / hw, 0.0, 1.0);
     float hgt = sqrt(max(1.0 - nn * nn, 0.0));
     float shade = 0.42 + 0.58 * hgt;
     float spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
     vec3 base = ac * mix(dim, 1.0, lit) * shade + vec3(spec * mix(0.12, 0.4, lit));
     vec3 em = ac * (lit * glow + head * edgeGlow);
-    vec2 g = vec2(angC * R / w + t * drift, (r - R) / w) * sDens;
+    vec2 g = vec2(alongPx / w + t * drift, acrossPx / w) * sDens;
     vec2 cell = floor(g);
     vec2 f = fract(g);
     vec2 jp = vec2(0.2) + 0.6 * hash22(cell + vec2(float(i) * 17.0, 3.0));
@@ -654,7 +667,8 @@ void main() {
   function bindInput(cv) {
     cv.addEventListener("pointerdown", (e) => {
       if (e.pointerType !== "mouse") {
-        if (pointer.id !== null && pointer.id !== e.pointerId) return; // follow the first finger only
+        // follow the first finger only; a new primary touch always takes over (recovers from a missed lift)
+        if (pointer.id !== null && pointer.id !== e.pointerId && !e.isPrimary) return;
         pointer.id = e.pointerId;
         try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       }
@@ -675,6 +689,10 @@ void main() {
     };
     cv.addEventListener("pointerup", lift);
     cv.addEventListener("pointercancel", lift);
+    cv.addEventListener("lostpointercapture", lift);
+    const release = () => { pointer.present = false; pointer.id = null; };
+    window.addEventListener("blur", release);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "visible") release(); });
     cv.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") pointer.present = false; });
     cv.addEventListener("contextmenu", (e) => e.preventDefault());
   }
@@ -688,6 +706,20 @@ void main() {
     const R = L.R[i];
     const tol = 0.5 * L.w * S.hoverScale;
     return Math.abs(r - R) <= tol && Math.abs(ang) <= L.H + tol / R;
+  }
+
+  // how far along arch i the finger is, 0 at the arch's start and 1 at its end (respects in/out direction)
+  function fingerAlong(i) {
+    const ang = Math.max(-L.H, Math.min(L.H, Math.atan2(pointer.x - L.cx, -(pointer.y - L.cy))));
+    const s = (ang + L.H) / (2 * L.H);
+    return isInhale(i) ? s : 1 - s;
+  }
+  // progress that puts the glowing front just ahead of the finger, so the finger never hides it
+  function followTarget(i) {
+    const f = fingerAlong(i);
+    if (S.lead >= 1 || f >= 0.97) return 1;
+    const E = S.edgeSoft;
+    return Math.max(0, Math.min(1, (f + S.lead + 0.5 * E) / (1 + E)));
   }
 
   // ---------- update ----------
@@ -706,10 +738,14 @@ void main() {
     }
     if (game.finished) return;
     const i = game.current, a = game.arches[i];
-    if (isNear(i) || a.progress >= S.autoFrom) {
+    // the light follows the finger along the arch, but never faster than the breath; past autoFrom it finishes on its own
+    let target = a.progress;
+    if (a.progress >= S.autoFrom) target = 1;
+    else if (isNear(i)) target = followTarget(i);
+    if (target > a.progress) {
       a.phase = 1;
       const secs = Math.max(isInhale(i) ? S.inhale : S.exhale, 0.1);
-      a.progress = Math.min(1, a.progress + dt / secs);
+      a.progress = Math.min(target, a.progress + dt / secs);
       if (a.progress >= 1) {
         a.phase = 2;
         a.active = false;
