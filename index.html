@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Trace each arch of a glowing rainbow with your finger, one slow breath per arch.">
+<meta property="og:title" content="Rainbow Breath">
+<meta property="og:description" content="Trace each arch of a glowing rainbow with your finger, one slow breath per arch.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0d1024">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rainbow Breath">
+<meta charset="utf-8">
+<title>Rainbow Breath</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Newsreader:ital,opsz,wght@1,6..72,300;1,6..72,400&display=swap">
+<style>
+  /* Layout: one full-bleed night canvas; the breath cue sits inside the arch; tuning tucks into a corner drawer */
+  :root {
+    --night: #0d1024;
+    --night-raised: #171b38;
+    --mist: #c8cbea;
+    --ink: #eef0ff;
+    --muted: #9095c2;
+    --dawn: #ffd38a;
+    --line: rgba(200, 203, 234, 0.16);
+    --panel: rgba(16, 19, 42, 0.88);
+    --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --font-ui: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    background: var(--night);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  canvas.sky {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+  }
+  .ui {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: max(14px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .brand { display: grid; gap: 2px; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 19px;
+    letter-spacing: 0.01em;
+    color: var(--mist);
+  }
+  .brand p {
+    margin: 0;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .controls { display: flex; gap: 8px; flex: none; }
+  .icon-btn {
+    pointer-events: auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: rgba(23, 27, 56, 0.6);
+    color: var(--mist);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    flex: none;
+  }
+  .icon-btn:active { background: rgba(23, 27, 56, 0.9); }
+  .icon-btn:focus-visible, .drawer button:focus-visible, .drawer input:focus-visible {
+    outline: 2px solid var(--dawn);
+    outline-offset: 2px;
+  }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .bottombar { display: flex; justify-content: center; }
+  .hint {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    text-align: center;
+    transition: opacity 0.6s ease;
+  }
+  .caption {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 300;
+    font-size: clamp(20px, 3.4vmin, 36px);
+    letter-spacing: 0.01em;
+    color: var(--mist);
+    text-align: center;
+    white-space: nowrap;
+    pointer-events: none;
+    transition: opacity 0.7s ease;
+  }
+  .drawer {
+    pointer-events: auto;
+    position: fixed;
+    top: calc(max(14px, env(safe-area-inset-top, 0px)) + 54px);
+    right: max(16px, env(safe-area-inset-right, 0px));
+    width: min(320px, calc(100% - 32px));
+    max-height: calc(100% - max(14px, env(safe-area-inset-top, 0px)) - max(14px, env(safe-area-inset-bottom, 0px)) - 70px);
+    overflow-y: auto;
+    touch-action: pan-y;
+    background: var(--panel);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px 16px;
+    display: grid;
+    gap: 14px;
+    -webkit-user-select: auto;
+    user-select: auto;
+  }
+  .drawer h2 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .group { display: grid; gap: 10px; }
+  .row { display: grid; gap: 4px; }
+  .row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .row-head output {
+    font-variant-numeric: tabular-nums;
+    color: var(--dawn);
+    font-size: 12px;
+  }
+  .row input[type="range"] { width: 100%; accent-color: var(--dawn); margin: 0; height: 22px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions button {
+    flex: 1 1 120px;
+    min-height: 38px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--night-raised);
+    color: var(--ink);
+    font: 500 13px var(--font-ui);
+    cursor: pointer;
+  }
+  .actions button.primary { background: var(--dawn); color: var(--night); border-color: transparent; }
+  .engine { margin: 0; font-size: 11px; color: var(--muted); }
+  .error {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    text-align: center;
+    color: var(--mist);
+    font-size: 15px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caption, .hint { transition: none; }
+  }
+</style>
+
+<canvas class="sky" id="sky" role="img" aria-label="A rainbow of seven arches. Trace each arch with your finger, one slow breath per arch."></canvas>
+
+<div class="ui">
+  <div class="topbar">
+    <div class="brand">
+      <h1>Rainbow Breath</h1>
+      <p>one arch, one slow breath</p>
+    </div>
+    <div class="controls">
+      <button class="icon-btn" id="restart-now" type="button" aria-label="Start over" title="Start over">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v3.7h3.7"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="tune" type="button" aria-label="Tuning" title="Tuning" aria-expanded="false" aria-controls="drawer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <div class="bottombar"><p class="hint" id="hint"></p></div>
+</div>
+
+<p class="caption" id="caption" aria-live="polite"></p>
+
+<section class="drawer" id="drawer" aria-label="Tuning" hidden>
+  <div class="group" id="group-breath"><h2>Breathing</h2></div>
+  <div class="group" id="group-light"><h2>Light</h2></div>
+  <div class="actions">
+    <button type="button" class="primary" id="restart">Start over</button>
+    <button type="button" id="reset">Reset tuning</button>
+  </div>
+  <p class="engine" id="engine"></p>
+</section>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- the rainbow ----------
+  // Colours are linear RGB (the same values as the Unreal M_Rainbow_* materials). Even index = in-breath (left -> right).
+  const ARCH_COLORS = [
+    [1.0, 0.0, 0.0], [0.8, 0.187, 0.0], [0.8, 0.643, 0.0], [0.0, 0.8, 0.002],
+    [0.0, 0.289, 0.8], [0.0, 0.0143, 0.8], [0.244, 0.0, 0.8],
+  ];
+  const N = ARCH_COLORS.length;
+  const isInhale = (i) => i % 2 === 0;
+
+  const DEFAULTS = {
+    inhale: 5, exhale: 5, hoverScale: 2.5, autoFrom: 0.95, handover: 1.0,
+    glow: 1.0, edgeSoft: 0.2, startCue: 0.35, glitter: 1.0, sparkleSize: 0.32, sparkleDensity: 4, twinkle: 0.5,
+  };
+  const FIXED = {
+    halfAngle: 0.87,      // arc spans +/- this many radians from vertical (matches the Unreal meshes)
+    tube: 0.06,           // tube thickness as a fraction of the outer radius
+    spacing: 0.062,       // centre-line spacing between arches, fraction of the outer radius
+    edgeWidth: 0.08, edgeGlow: 2.0, dim: 0.35, cueRamp: 0.1, drift: 0.15, whiteness: 0.6, halo: 0.8,
+    drainSeconds: 1.4,
+  };
+  const CONTROLS = [
+    { group: "breath", key: "inhale", label: "Breathe in", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
+    { group: "breath", key: "exhale", label: "Breathe out", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
+    { group: "breath", key: "hoverScale", label: "Finger zone", min: 1, max: 5, step: 0.1, fmt: (v) => v.toFixed(1) + "×" },
+    { group: "breath", key: "autoFrom", label: "Finish on its own from", min: 0.8, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + "%" },
+    { group: "breath", key: "handover", label: "Hand-over fade", min: 0, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + " s" },
+    { group: "light", key: "glow", label: "Glow", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
+    { group: "light", key: "edgeSoft", label: "Fade length", min: 0.02, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) },
+    { group: "light", key: "startCue", label: "Start hint", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
+    { group: "light", key: "glitter", label: "Glitter", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
+    { group: "light", key: "sparkleSize", label: "Sparkle size", min: 0.1, max: 0.6, step: 0.01, fmt: (v) => v.toFixed(2) },
+    { group: "light", key: "sparkleDensity", label: "Sparkle density", min: 1, max: 8, step: 0.5, fmt: (v) => v.toFixed(1) },
+    { group: "light", key: "twinkle", label: "Twinkle speed", min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) + " /s" },
+  ];
+
+  const STORE_KEY = "rainbow-breath-tuning-v1";
+  const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function loadSettings() {
+    const s = { ...DEFAULTS };
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        for (const k of Object.keys(DEFAULTS)) if (typeof saved[k] === "number" && isFinite(saved[k])) s[k] = saved[k];
+      }
+    } catch (e) { /* storage unavailable - defaults are fine */ }
+    return s;
+  }
+  function saveSettings() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+  }
+  let S = loadSettings();
+
+  // ---------- game state ----------
+  const game = { arches: [], current: 0, finished: false, draining: 0, started: false };
+  function newGame() {
+    game.arches = ARCH_COLORS.map((_, i) => ({ progress: 0, phase: 0, active: i === 0, amount: 0 }));
+    game.current = 0;
+    game.finished = false;
+    game.draining = 0;
+  }
+  function restart() {
+    for (const a of game.arches) a.active = false;
+    game.finished = false;
+    game.draining = FIXED.drainSeconds;
+  }
+  newGame();
+
+  // ---------- layout (CSS pixels) ----------
+  let L = null;
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+  document.body.appendChild(probe);
+  function readInsets() {
+    const cs = getComputedStyle(probe);
+    return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  }
+  function computeLayout() {
+    const W = window.innerWidth, Hh = window.innerHeight, ins = readInsets();
+    const m = 14;
+    const left = ins.l + m, right = W - ins.r - m, top = ins.t + m, bottom = Hh - ins.b - m;
+    const AW = Math.max(50, right - left), AH = Math.max(50, bottom - top);
+    const H = FIXED.halfAngle, a = FIXED.tube, b = FIXED.spacing;
+    const hFactor = 1 + a - (1 - (N - 1) * b) * Math.cos(H);
+    const R0 = Math.min(AW / (2 * Math.sin(H) + a), AH / hFactor);
+    const w = a * R0, sp = b * R0;
+    const cx = left + AW / 2;
+    const cy = top + (AH - R0 * hFactor) / 2 + R0 * (1 + a / 2);
+    const Rin = R0 - (N - 1) * sp;
+    L = { cx, cy, R0, w, sp, H, R: Array.from({ length: N }, (_, i) => R0 - i * sp),
+          captionY: cy - (Rin - w / 2 + Rin * Math.cos(H)) / 2, portraitSmall: w < 16 && Hh > W };
+  }
+
+  // ---------- canvas + renderers ----------
+  let canvas = document.getElementById("sky");
+  let dpr = 1;
+  function resizeCanvas() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
+    canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+    computeLayout();
+  }
+
+  const WGSL = /* wgsl */ `
+struct Uniforms { v : array<vec4f, 20> };
+@group(0) @binding(0) var<uniform> U : Uniforms;
+
+@vertex
+fn vs(@builtin(vertex_index) vi : u32) -> @builtin(position) vec4f {
+  var pos = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(-1.0, 1.0), vec2f(3.0, 1.0));
+  return vec4f(pos[vi], 0.0, 1.0);
+}
+
+fn hash12(p : vec2f) -> f32 {
+  var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
+  p3 = p3 + dot(p3, p3.yzx + vec3f(33.33));
+  return fract((p3.x + p3.y) * p3.z);
+}
+fn hash22(p : vec2f) -> vec2f {
+  var p3 = fract(vec3f(p.x, p.y, p.x) * vec3f(0.1031, 0.1030, 0.0973));
+  p3 = p3 + dot(p3, p3.yzx + vec3f(33.33));
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+fn sstep(x : f32) -> f32 { let c = clamp(x, 0.0, 1.0); return c * c * (3.0 - 2.0 * c); }
+
+fn background(p : vec2f, res : vec2f, t : f32, dpr : f32) -> vec3f {
+  let uv = p / res;
+  var col = mix(vec3f(0.008, 0.010, 0.034), vec3f(0.036, 0.030, 0.082), uv.y);
+  let cellSz = 46.0 * dpr;
+  let gcell = floor(p / cellSz);
+  let rnd = hash12(gcell + vec2f(91.0, 13.0));
+  if (rnd > 0.9) {
+    let jp = hash22(gcell + vec2f(5.0, 71.0));
+    let sd = length(p / cellSz - gcell - jp) * cellSz / dpr;
+    let star = (1.0 - smoothstep(0.0, 1.4, sd)) * (0.55 + 0.45 * sin(t * 0.6 + rnd * 40.0));
+    col = col + vec3f(0.55, 0.6, 0.9) * star * 0.3 * (1.0 - uv.y * 0.6);
+  }
+  return col;
+}
+
+fn finishColor(c : vec3f) -> vec3f {
+  let m = max(max(c.x, c.y), max(c.z, 0.0001));
+  let huePreserving = c * ((1.0 - exp(-m * 1.1)) / m);
+  let perChannel = vec3f(1.0) - exp(-c * 1.1);
+  let mapped = mix(huePreserving, perChannel, 0.3);
+  return pow(clamp(mapped, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2));
+}
+
+@fragment
+fn fs(@builtin(position) fc : vec4f) -> @location(0) vec4f {
+  let res = U.v[0].xy; let t = U.v[0].z; let dpr = U.v[0].w;
+  let p = fc.xy;
+  let c = U.v[1].xy; let R0 = U.v[1].z; let w = U.v[1].w;
+  let sp = U.v[2].x; let H = U.v[2].y; let E = max(U.v[2].z, 0.001); let EW = max(U.v[2].w, 0.001);
+  let glow = U.v[3].x; let edgeGlow = U.v[3].y; let dim = U.v[3].z; let startCue = U.v[3].w;
+  let cueRamp = max(U.v[4].x, 0.001); let glitter = U.v[4].y; let sSize = max(U.v[4].z, 0.01); let sDens = max(U.v[4].w, 0.5);
+  let twk = U.v[5].x; let drift = U.v[5].y; let white = U.v[5].z; let halo = U.v[5].w;
+
+  var col = background(p, res, t, dpr);
+  let d = p - c;
+  let r = length(d);
+  let angC = clamp(atan2(d.x, -d.y), -H, H);
+  let hw = 0.5 * w;
+  var bloom = vec3f(0.0);
+  for (var i = 0; i < 7; i = i + 1) {
+    let cd = U.v[6 + i];
+    let st = U.v[13 + i];
+    let ac = cd.xyz;
+    let P = st.x;
+    let act = st.y;
+    let R = R0 - f32(i) * sp;
+    let q = c + R * vec2f(sin(angC), -cos(angC));
+    let dist = length(p - q);
+    let mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, dist);
+    var s = (angC + H) / (2.0 * H);
+    s = mix(s, 1.0 - s, cd.w);
+    let Pp = P * (1.0 + E);
+    let lit = sstep((Pp - s) / E);
+    let hc = clamp(Pp - 0.5 * E, 0.0, 1.0);
+    let cue = mix(startCue, 1.0, sstep(P / cueRamp));
+    let head = sstep(1.0 - abs(hc - s) / EW) * act * cue;
+    let nAcross = clamp((r - R) / hw, -1.0, 1.0);
+    let nn = clamp(dist / hw, 0.0, 1.0);
+    let hgt = sqrt(max(1.0 - nn * nn, 0.0));
+    let shade = 0.42 + 0.58 * hgt;
+    let spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
+    let base = ac * mix(dim, 1.0, lit) * shade + vec3f(spec * mix(0.12, 0.4, lit));
+    let em = ac * (lit * glow + head * edgeGlow);
+    let g = vec2f(angC * R / w + t * drift, (r - R) / w) * sDens;
+    let cell = floor(g);
+    let f = fract(g);
+    let jp = vec2f(0.2) + 0.6 * hash22(cell + vec2f(f32(i) * 17.0, 3.0));
+    let rnd = hash12(cell + vec2f(f32(i) * 31.0, 7.0));
+    let spark = 1.0 - smoothstep(0.0, sSize, length(f - jp));
+    let tw = pow(max(sin(6.2831853 * (t * twk + rnd)), 0.0), 3.0);
+    let gl3 = mix(ac, vec3f(1.0), white) * (spark * tw * lit * glitter * 2.2 * hgt);
+    col = mix(col, base + em + gl3, mask);
+    let outside = max(dist - hw, 0.0);
+    bloom = bloom + ac * (lit * glow * 0.55 + head * edgeGlow * 0.6) * exp(-outside / (0.85 * w)) * halo * (1.0 - mask);
+  }
+  return vec4f(finishColor(col + bloom), 1.0);
+}
+`;
+
+  const GLSL_VS = `#version 300 es
+void main() {
+  vec2 pos = vec2(gl_VertexID == 2 ? 3.0 : -1.0, gl_VertexID == 0 ? -3.0 : 1.0);
+  gl_Position = vec4(pos, 0.0, 1.0);
+}`;
+
+  const GLSL_FS = `#version 300 es
+precision highp float;
+uniform vec4 u[20];
+out vec4 outColor;
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+vec2 hash22(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+float sstep(float x) { float c = clamp(x, 0.0, 1.0); return c * c * (3.0 - 2.0 * c); }
+
+vec3 background(vec2 p, vec2 res, float t, float dpr) {
+  vec2 uv = p / res;
+  vec3 col = mix(vec3(0.008, 0.010, 0.034), vec3(0.036, 0.030, 0.082), uv.y);
+  float cellSz = 46.0 * dpr;
+  vec2 gcell = floor(p / cellSz);
+  float rnd = hash12(gcell + vec2(91.0, 13.0));
+  if (rnd > 0.9) {
+    vec2 jp = hash22(gcell + vec2(5.0, 71.0));
+    float sd = length(p / cellSz - gcell - jp) * cellSz / dpr;
+    float star = (1.0 - smoothstep(0.0, 1.4, sd)) * (0.55 + 0.45 * sin(t * 0.6 + rnd * 40.0));
+    col += vec3(0.55, 0.6, 0.9) * star * 0.3 * (1.0 - uv.y * 0.6);
+  }
+  return col;
+}
+
+vec3 finishColor(vec3 c) {
+  float m = max(max(c.x, c.y), max(c.z, 0.0001));
+  vec3 huePreserving = c * ((1.0 - exp(-m * 1.1)) / m);
+  vec3 perChannel = vec3(1.0) - exp(-c * 1.1);
+  vec3 mapped = mix(huePreserving, perChannel, 0.3);
+  return pow(clamp(mapped, 0.0, 1.0), vec3(1.0 / 2.2));
+}
+
+void main() {
+  vec2 res = u[0].xy; float t = u[0].z; float dpr = u[0].w;
+  vec2 p = vec2(gl_FragCoord.x, res.y - gl_FragCoord.y);
+  vec2 c = u[1].xy; float R0 = u[1].z; float w = u[1].w;
+  float sp = u[2].x; float H = u[2].y; float E = max(u[2].z, 0.001); float EW = max(u[2].w, 0.001);
+  float glow = u[3].x; float edgeGlow = u[3].y; float dim = u[3].z; float startCue = u[3].w;
+  float cueRamp = max(u[4].x, 0.001); float glitter = u[4].y; float sSize = max(u[4].z, 0.01); float sDens = max(u[4].w, 0.5);
+  float twk = u[5].x; float drift = u[5].y; float white = u[5].z; float halo = u[5].w;
+
+  vec3 col = background(p, res, t, dpr);
+  vec2 d = p - c;
+  float r = length(d);
+  float angC = clamp(atan(d.x, -d.y), -H, H);
+  float hw = 0.5 * w;
+  vec3 bloom = vec3(0.0);
+  for (int i = 0; i < 7; i++) {
+    vec4 cd = u[6 + i];
+    vec4 st = u[13 + i];
+    vec3 ac = cd.xyz;
+    float P = st.x;
+    float act = st.y;
+    float R = R0 - float(i) * sp;
+    vec2 q = c + R * vec2(sin(angC), -cos(angC));
+    float dist = length(p - q);
+    float mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, dist);
+    float s = (angC + H) / (2.0 * H);
+    s = mix(s, 1.0 - s, cd.w);
+    float Pp = P * (1.0 + E);
+    float lit = sstep((Pp - s) / E);
+    float hc = clamp(Pp - 0.5 * E, 0.0, 1.0);
+    float cue = mix(startCue, 1.0, sstep(P / cueRamp));
+    float head = sstep(1.0 - abs(hc - s) / EW) * act * cue;
+    float nAcross = clamp((r - R) / hw, -1.0, 1.0);
+    float nn = clamp(dist / hw, 0.0, 1.0);
+    float hgt = sqrt(max(1.0 - nn * nn, 0.0));
+    float shade = 0.42 + 0.58 * hgt;
+    float spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
+    vec3 base = ac * mix(dim, 1.0, lit) * shade + vec3(spec * mix(0.12, 0.4, lit));
+    vec3 em = ac * (lit * glow + head * edgeGlow);
+    vec2 g = vec2(angC * R / w + t * drift, (r - R) / w) * sDens;
+    vec2 cell = floor(g);
+    vec2 f = fract(g);
+    vec2 jp = vec2(0.2) + 0.6 * hash22(cell + vec2(float(i) * 17.0, 3.0));
+    float rnd = hash12(cell + vec2(float(i) * 31.0, 7.0));
+    float spark = 1.0 - smoothstep(0.0, sSize, length(f - jp));
+    float tw = pow(max(sin(6.2831853 * (t * twk + rnd)), 0.0), 3.0);
+    vec3 gl3 = mix(ac, vec3(1.0), white) * (spark * tw * lit * glitter * 2.2 * hgt);
+    col = mix(col, base + em + gl3, mask);
+    float outside = max(dist - hw, 0.0);
+    bloom += ac * (lit * glow * 0.55 + head * edgeGlow * 0.6) * exp(-outside / (0.85 * w)) * halo * (1.0 - mask);
+  }
+  outColor = vec4(finishColor(col + bloom), 1.0);
+}`;
+
+  const U = new Float32Array(20 * 4);
+
+  async function initWebGPU(cv) {
+    if (!navigator.gpu) return null;
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return null;
+    const device = await adapter.requestDevice();
+    const ctx = cv.getContext("webgpu");
+    if (!ctx) return null;
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    ctx.configure({ device, format, alphaMode: "opaque" });
+    const module = device.createShaderModule({ code: WGSL });
+    if (module.getCompilationInfo) {
+      const info = await module.getCompilationInfo();
+      const errors = info.messages.filter((m) => m.type === "error");
+      if (errors.length) { console.error("WGSL errors", errors.map((e) => e.lineNum + ": " + e.message).join("\n")); return null; }
+    }
+    const pipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module, entryPoint: "vs" },
+      fragment: { module, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" },
+    });
+    const ubuf = device.createBuffer({ size: U.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+    return {
+      name: "WebGPU",
+      draw() {
+        device.queue.writeBuffer(ubuf, 0, U);
+        const enc = device.createCommandEncoder();
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bind);
+        pass.draw(3);
+        pass.end();
+        device.queue.submit([enc.finish()]);
+      },
+    };
+  }
+
+  function initWebGL2(cv) {
+    const gl = cv.getContext("webgl2", { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: "default" });
+    if (!gl) return null;
+    const compile = (type, src) => {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(sh)); return null; }
+      return sh;
+    };
+    const vs = compile(gl.VERTEX_SHADER, GLSL_VS), fs = compile(gl.FRAGMENT_SHADER, GLSL_FS);
+    if (!vs || !fs) return null;
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { console.error(gl.getProgramInfoLog(prog)); return null; }
+    const loc = gl.getUniformLocation(prog, "u");
+    const vao = gl.createVertexArray();
+    return {
+      name: "WebGL 2",
+      draw() {
+        gl.viewport(0, 0, cv.width, cv.height);
+        gl.useProgram(prog);
+        gl.bindVertexArray(vao);
+        gl.uniform4fv(loc, U);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      },
+    };
+  }
+
+  function freshCanvas() {
+    const next = canvas.cloneNode(false);
+    canvas.replaceWith(next);
+    canvas = next;
+    resizeCanvas();
+  }
+
+  async function initRenderer() {
+    const forceGL = /webgl/i.test(location.search);
+    if (!forceGL && navigator.gpu) {
+      try {
+        const r = await initWebGPU(canvas);
+        if (r) return r;
+      } catch (e) { console.warn("WebGPU unavailable, falling back", e); }
+      freshCanvas(); // a canvas can only hold one kind of context
+    }
+    return initWebGL2(canvas);
+  }
+
+  // ---------- input: finger first, mouse for desktop testing ----------
+  const pointer = { present: false, x: 0, y: 0, id: null };
+  let wakeLock = null;
+  function requestWakeLock() {
+    if (!navigator.wakeLock || wakeLock) return;
+    navigator.wakeLock.request("screen").then((l) => { wakeLock = l; l.addEventListener("release", () => { wakeLock = null; }); }).catch(() => {});
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && game.started) requestWakeLock(); });
+
+  function bindInput(cv) {
+    cv.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "mouse") {
+        if (pointer.id !== null && pointer.id !== e.pointerId) return; // follow the first finger only
+        pointer.id = e.pointerId;
+        try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
+      pointer.present = true;
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+      game.started = true;
+      requestWakeLock();
+      if (game.finished) restart();
+    });
+    cv.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "mouse") { pointer.present = true; pointer.x = e.clientX; pointer.y = e.clientY; return; }
+      if (e.pointerId === pointer.id) { pointer.x = e.clientX; pointer.y = e.clientY; }
+    });
+    const lift = (e) => {
+      if (e.pointerType === "mouse") return;
+      if (e.pointerId === pointer.id) { pointer.present = false; pointer.id = null; }
+    };
+    cv.addEventListener("pointerup", lift);
+    cv.addEventListener("pointercancel", lift);
+    cv.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") pointer.present = false; });
+    cv.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  // true when the pointer is inside the forgiving band around arch i (and a little past its ends)
+  function isNear(i) {
+    if (!pointer.present || !L) return false;
+    const dx = pointer.x - L.cx, dy = pointer.y - L.cy;
+    const r = Math.hypot(dx, dy);
+    const ang = Math.atan2(dx, -dy);
+    const R = L.R[i];
+    const tol = 0.5 * L.w * S.hoverScale;
+    return Math.abs(r - R) <= tol && Math.abs(ang) <= L.H + tol / R;
+  }
+
+  // ---------- update ----------
+  function update(dt) {
+    const fade = Math.max(S.handover, 0.01);
+    for (const a of game.arches) {
+      const target = a.active ? 1 : 0;
+      const delta = Math.max(-dt / fade, Math.min(dt / fade, target - a.amount));
+      a.amount += delta;
+    }
+    if (game.draining > 0) {
+      game.draining -= dt;
+      for (const a of game.arches) a.progress = Math.max(0, a.progress - dt / FIXED.drainSeconds);
+      if (game.draining <= 0) newGame();
+      return;
+    }
+    if (game.finished) return;
+    const i = game.current, a = game.arches[i];
+    if (isNear(i) || a.progress >= S.autoFrom) {
+      a.phase = 1;
+      const secs = Math.max(isInhale(i) ? S.inhale : S.exhale, 0.1);
+      a.progress = Math.min(1, a.progress + dt / secs);
+      if (a.progress >= 1) {
+        a.phase = 2;
+        a.active = false;
+        if (i + 1 < N) { game.current = i + 1; game.arches[i + 1].active = true; game.arches[i + 1].progress = 0; }
+        else game.finished = true;
+      }
+    }
+  }
+
+  function packUniforms(time) {
+    const k = dpr;
+    U.set([canvas.width, canvas.height, time, k], 0);
+    U.set([L.cx * k, L.cy * k, L.R0 * k, L.w * k], 4);
+    U.set([L.sp * k, L.H, S.edgeSoft, FIXED.edgeWidth], 8);
+    U.set([S.glow, FIXED.edgeGlow, FIXED.dim, S.startCue], 12);
+    U.set([FIXED.cueRamp, S.glitter, S.sparkleSize, S.sparkleDensity], 16);
+    U.set([reduceMotion ? S.twinkle * 0.4 : S.twinkle, reduceMotion ? 0 : FIXED.drift, FIXED.whiteness, FIXED.halo], 20);
+    for (let i = 0; i < N; i++) {
+      const c = ARCH_COLORS[i];
+      U.set([c[0], c[1], c[2], isInhale(i) ? 0 : 1], 24 + i * 4);
+      U.set([game.arches[i].progress, game.arches[i].amount, 0, 0], 52 + i * 4);
+    }
+  }
+
+  // ---------- captions ----------
+  const captionEl = document.getElementById("caption");
+  const hintEl = document.getElementById("hint");
+  let shownCaption = null, pendingCaption = null, captionTimer = 0;
+  function wantedCaption() {
+    if (game.draining > 0) return "";
+    if (game.finished) return "Seven slow breaths. Tap to begin again.";
+    const i = game.current;
+    if (!game.started && i === 0) return "Trace the glowing arch · breathe in";
+    return isInhale(i) ? "breathe in" : "breathe out";
+  }
+  function updateCaption() {
+    if (L) captionEl.style.top = L.captionY + "px";
+    const want = wantedCaption();
+    if (want !== shownCaption && want !== pendingCaption) {
+      pendingCaption = want;
+      captionEl.style.opacity = "0";
+      clearTimeout(captionTimer);
+      captionTimer = setTimeout(() => {
+        shownCaption = pendingCaption;
+        pendingCaption = null;
+        captionEl.textContent = shownCaption;
+        captionEl.style.opacity = shownCaption ? "1" : "0";
+      }, reduceMotion ? 0 : 450);
+    }
+    const hint = L && L.portraitSmall ? "Turn your phone sideways for a bigger rainbow" : "";
+    if (hintEl.textContent !== hint) hintEl.textContent = hint;
+  }
+
+  // ---------- tuning drawer ----------
+  const drawer = document.getElementById("drawer");
+  const tuneBtn = document.getElementById("tune");
+  const outputs = {};
+  function buildControls() {
+    for (const c of CONTROLS) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const id = "ctl-" + c.key;
+      row.innerHTML = '<div class="row-head"><label for="' + id + '"></label><output for="' + id + '"></output></div>' +
+        '<input type="range" id="' + id + '" min="' + c.min + '" max="' + c.max + '" step="' + c.step + '">';
+      row.querySelector("label").textContent = c.label;
+      const input = row.querySelector("input");
+      const out = row.querySelector("output");
+      input.value = String(S[c.key]);
+      out.textContent = c.fmt(S[c.key]);
+      outputs[c.key] = { input, out, fmt: c.fmt };
+      input.addEventListener("input", () => {
+        S[c.key] = parseFloat(input.value);
+        out.textContent = c.fmt(S[c.key]);
+        saveSettings();
+      });
+      document.getElementById(c.group === "breath" ? "group-breath" : "group-light").appendChild(row);
+    }
+  }
+  function syncControls() {
+    for (const k of Object.keys(outputs)) {
+      outputs[k].input.value = String(S[k]);
+      outputs[k].out.textContent = outputs[k].fmt(S[k]);
+    }
+  }
+  tuneBtn.addEventListener("click", () => {
+    drawer.hidden = !drawer.hidden;
+    tuneBtn.setAttribute("aria-expanded", String(!drawer.hidden));
+  });
+  document.getElementById("restart").addEventListener("click", () => { restart(); });
+  document.getElementById("restart-now").addEventListener("click", () => { restart(); });
+  document.getElementById("reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); syncControls(); });
+  buildControls();
+
+  // ---------- run ----------
+  let renderer = null, last = 0, time = 0;
+  function frame(now) {
+    const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+    last = now;
+    time = (time + dt) % 10000;
+    update(dt);
+    packUniforms(time);
+    renderer.draw();
+    updateCaption();
+    requestAnimationFrame(frame);
+  }
+
+  async function start(saved) {
+    if (saved && saved.game && Array.isArray(saved.game.arches) && saved.game.arches.length === N) Object.assign(game, saved.game);
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    renderer = await initRenderer();
+    if (!renderer) {
+      const msg = document.createElement("p");
+      msg.className = "error";
+      msg.textContent = "This browser can't draw the rainbow. It needs WebGPU or WebGL 2, which recent Safari, Chrome and Firefox all have.";
+      document.body.appendChild(msg);
+      return;
+    }
+    document.getElementById("engine").textContent = "Drawing with " + renderer.name + " at " + dpr.toFixed(1) + "× pixel density.";
+    bindInput(canvas);
+    requestAnimationFrame(frame);
+  }
+
+  // local testing only (?test in the URL): advance the game clock without waiting for animation frames
+  if (/[?&]test\b/.test(location.search)) {
+    window.__rainbow = {
+      step(seconds, dt = 1 / 60) { for (let t = 0; t < seconds; t += dt) update(dt); updateCaption(); return this.state(); },
+      state: () => ({ current: game.current, finished: game.finished, draining: game.draining,
+        arches: game.arches.map((a) => ({ p: +a.progress.toFixed(3), amt: +a.amount.toFixed(3), phase: a.phase, active: a.active })) }),
+      near: (i) => isNear(i),
+      layout: () => L,
+    };
+  }
+
+  const hot = window.claude && window.claude.hot;
+  if (hot && typeof hot.snapshot === "function") hot.snapshot(() => ({ game: JSON.parse(JSON.stringify(game)) }));
+  if (hot && typeof hot.ready === "function") hot.ready(start);
+  else start(hot && hot.data ? hot.data : {});
+})();
+</script>
