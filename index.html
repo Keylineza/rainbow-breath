@@ -215,7 +215,7 @@
           <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v3.7h3.7"/>
         </svg>
       </button>
-      <button class="icon-btn" id="tune" type="button" aria-label="Tuning" title="Tuning" aria-expanded="false" aria-controls="drawer">
+      <button class="icon-btn" id="tune" type="button" aria-label="Tuning" title="Tuning" aria-expanded="false" aria-controls="drawer" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
           <path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>
         </svg>
@@ -228,11 +228,13 @@
 <p class="caption" id="caption" aria-live="polite"></p>
 
 <section class="drawer" id="drawer" aria-label="Tuning" hidden>
+  <p class="engine">Developer tuning. Changes are saved on this device only; visitors always get the built-in values. Use Copy tuning to send values to make them the default.</p>
   <div class="group" id="group-breath"><h2>Breathing</h2></div>
   <div class="group" id="group-light"><h2>Light</h2></div>
   <div class="actions">
     <button type="button" class="primary" id="restart">Start over</button>
     <button type="button" id="reset">Reset tuning</button>
+    <button type="button" id="copy-tuning">Copy tuning</button>
   </div>
   <p class="engine" id="engine"></p>
 </section>
@@ -278,9 +280,12 @@
 
   const STORE_KEY = "rainbow-breath-tuning-v1";
   const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // developer mode (?dev, or #dev on the artifact link) shows the tuning drawer; the shared link always uses DEFAULTS
+  const DEV = /[?&#]dev\b/i.test(location.search + location.hash);
 
   function loadSettings() {
     const s = { ...DEFAULTS };
+    if (!DEV) return s;
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
@@ -291,6 +296,7 @@
     return s;
   }
   function saveSettings() {
+    if (!DEV) return;
     try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
   }
   let S = loadSettings();
@@ -795,7 +801,16 @@ void main() {
   document.getElementById("restart").addEventListener("click", () => { restart(); });
   document.getElementById("restart-now").addEventListener("click", () => { restart(); });
   document.getElementById("reset").addEventListener("click", () => { S = { ...DEFAULTS }; saveSettings(); syncControls(); });
+  const copyBtn = document.getElementById("copy-tuning");
+  copyBtn.addEventListener("click", () => {
+    const text = JSON.stringify(S);
+    const done = (label) => { copyBtn.textContent = label; setTimeout(() => { copyBtn.textContent = "Copy tuning"; }, 1800); };
+    const fallback = () => { document.getElementById("engine").textContent = text; done("Select the text below"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => done("Copied"), fallback);
+    else fallback();
+  });
   buildControls();
+  if (DEV) tuneBtn.hidden = false;
 
   // ---------- run ----------
   let renderer = null, last = 0, time = 0;
