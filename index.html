@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="en">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Trace each arch of a glowing rainbow with your finger, one slow breath per arch.">
+<meta name="description" content="Trace a glowing loop with your finger: breathe in along the top and bottom, breathe out down the sides.">
 <meta property="og:title" content="Rainbow Breath">
-<meta property="og:description" content="Trace each arch of a glowing rainbow with your finger, one slow breath per arch.">
+<meta property="og:description" content="Trace a glowing loop with your finger: breathe in along the top and bottom, breathe out down the sides.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#0d1024">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Rainbow Breath">
+
 <meta charset="utf-8">
 <title>Rainbow Breath</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -15,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Newsreader:ital,opsz,wght@1,6..72,300;1,6..72,400&display=swap">
 <style>
-  /* Layout: one full-bleed night canvas; the breath cue sits inside the arch; tuning tucks into a corner drawer */
+  /* Layout: one full-bleed night canvas; a glowing loop sits centred with the breath cue inside it; tuning tucks into a corner drawer */
   :root {
     --night: #0d1024;
     --night-raised: #171b38;
@@ -109,7 +110,7 @@
     letter-spacing: 0.04em;
     color: var(--muted);
     text-align: center;
-    transition: opacity 0.6s ease;
+    margin: 0;
   }
   .caption {
     position: fixed;
@@ -120,7 +121,7 @@
     font-family: var(--font-display);
     font-style: italic;
     font-weight: 300;
-    font-size: clamp(20px, 3.4vmin, 36px);
+    font-size: 24px;
     letter-spacing: 0.01em;
     color: var(--mist);
     text-align: center;
@@ -170,6 +171,7 @@
     font-variant-numeric: tabular-nums;
     color: var(--dawn);
     font-size: 12px;
+    text-align: right;
   }
   .row input[type="range"] { width: 100%; accent-color: var(--dawn); margin: 0; height: 22px; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -197,17 +199,17 @@
     font-size: 15px;
   }
   @media (prefers-reduced-motion: reduce) {
-    .caption, .hint { transition: none; }
+    .caption { transition: none; }
   }
 </style>
 
-<canvas class="sky" id="sky" role="img" aria-label="A rainbow of seven arches. Trace each arch with your finger, one slow breath per arch."></canvas>
+<canvas class="sky" id="sky" role="img" aria-label="A glowing rounded rectangle. Trace it with your finger: breathe in along the top and bottom, breathe out down the sides."></canvas>
 
 <div class="ui">
   <div class="topbar">
     <div class="brand">
       <h1>Rainbow Breath</h1>
-      <p>one arch, one slow breath</p>
+      <p>trace the loop with your breath</p>
     </div>
     <div class="controls">
       <button class="icon-btn" id="restart-now" type="button" aria-label="Start over" title="Start over">
@@ -244,45 +246,46 @@
 (() => {
   "use strict";
 
-  // ---------- the rainbow ----------
-  // Colours are linear RGB (the same values as the Unreal M_Rainbow_* materials). Even index = in-breath (left -> right).
-  const ARCH_COLORS = [
+  // ---------- the loop ----------
+  // A rounded rectangle traced clockwise from the middle of its top-left corner:
+  // top = in-breath, right = out-breath, bottom = in-breath, left = out-breath.
+  // Each side's length is proportional to its breath time, so the light moves at one steady speed.
+  // Colours (linear RGB, from the Unreal rainbow) run around the loop as a gradient.
+  const PALETTE = [
     [1.0, 0.0, 0.0], [0.8, 0.187, 0.0], [0.8, 0.643, 0.0], [0.0, 0.8, 0.002],
     [0.0, 0.289, 0.8], [0.0, 0.0143, 0.8], [0.244, 0.0, 0.8],
   ];
-  const N = ARCH_COLORS.length;
-  const isInhale = (i) => i % 2 === 0;
 
   const DEFAULTS = {
-    inhale: 5, exhale: 5, hoverScale: 2.5, autoFrom: 0.95, handover: 1.0, lead: 0.05,
-    span: 0.55, thickness: 0.075,
-    glow: 1.0, edgeSoft: 0.2, startCue: 0.35, glitter: 1.0, flakeSize: 0.06, flakeDensity: 3, flakeLayers: 3, twinkle: 0.4,
+    inhale: 4, exhale: 5, hoverScale: 2.5, lead: 0.8, trail: 0.92,
+    size: 0.92, thickness: 0.12, corner: 1.2,
+    glow: 1.0, edgeSoft: 0.1, startCue: 0.35, glitter: 1.0, flakeSize: 0.06, flakeDensity: 3, flakeLayers: 3, twinkle: 0.4,
   };
   const FIXED = {
-    spacingRatio: 1.04,   // centre-line spacing between arches, as a multiple of the tube thickness (arches just touch)
-    edgeWidth: 0.08, edgeGlow: 2.0, dim: 0.35, cueRamp: 0.1, drift: 0.15, whiteness: 0.6, halo: 0.8,
-    drainSeconds: 1.4,
+    edgeWidth: 0.035,     // glowing head width, fraction of the loop
+    edgeGlow: 2.0, dim: 0.35, cueRamp: 0.03, drift: 0.15, whiteness: 0.6, halo: 0.8,
+    drainSeconds: 1.2,
   };
   const CONTROLS = [
-    { group: "breath", key: "inhale", label: "Breathe in", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
-    { group: "breath", key: "exhale", label: "Breathe out", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
+    { group: "breath", key: "inhale", label: "Breathe in (top and bottom)", min: 2, max: 10, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
+    { group: "breath", key: "exhale", label: "Breathe out (sides)", min: 2, max: 12, step: 0.5, fmt: (v) => v.toFixed(1) + " s" },
     { group: "breath", key: "hoverScale", label: "Finger zone", min: 1, max: 5, step: 0.1, fmt: (v) => v.toFixed(1) + "×" },
-    { group: "breath", key: "lead", label: "Light runs ahead of finger by", min: 0, max: 1, step: 0.01, fmt: (v) => (v >= 1 ? "any (timer only)" : Math.round(v * 100) + "%") },
-    { group: "breath", key: "autoFrom", label: "Finish on its own from", min: 0.8, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + "%" },
-    { group: "breath", key: "handover", label: "Hand-over fade", min: 0, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + " s" },
-    { group: "shape", key: "span", label: "Arch length", min: 0.4, max: 1.2, step: 0.01, fmt: (v) => Math.round((v * 360) / Math.PI) + "° of arc" },
-    { group: "shape", key: "thickness", label: "Arch thickness (max)", min: 0.04, max: 0.13, step: 0.005, fmt: (v) => (v * 100).toFixed(1) + "% of rainbow size" },
+    { group: "breath", key: "lead", label: "Light runs ahead of finger by", min: 0, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + " tube widths" },
+    { group: "breath", key: "trail", label: "Glow lasts for", min: 0.3, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + "% of a lap" },
+    { group: "shape", key: "size", label: "Size", min: 0.5, max: 1, step: 0.01, fmt: (v) => Math.round(v * 100) + "%" },
+    { group: "shape", key: "thickness", label: "Tube thickness", min: 0.05, max: 0.18, step: 0.005, fmt: (v) => (v * 100).toFixed(1) + "% of screen" },
+    { group: "shape", key: "corner", label: "Corner roundness", min: 0.6, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + "×" },
     { group: "light", key: "glow", label: "Glow", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
-    { group: "light", key: "edgeSoft", label: "Fade length", min: 0.02, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) },
+    { group: "light", key: "edgeSoft", label: "Front softness", min: 0.02, max: 0.3, step: 0.01, fmt: (v) => Math.round(v * 100) + "% of a lap" },
     { group: "light", key: "startCue", label: "Start hint", min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + "%" },
     { group: "light", key: "glitter", label: "Glitter", min: 0, max: 3, step: 0.05, fmt: (v) => v.toFixed(2) },
-    { group: "light", key: "flakeSize", label: "Flake size", min: 0.02, max: 0.15, step: 0.005, fmt: (v) => Math.round(v * 200) + "% of arch width" },
+    { group: "light", key: "flakeSize", label: "Flake size", min: 0.02, max: 0.15, step: 0.005, fmt: (v) => Math.round(v * 200) + "% of tube width" },
     { group: "light", key: "flakeDensity", label: "Flake density", min: 1, max: 8, step: 0.5, fmt: (v) => v.toFixed(1) },
     { group: "light", key: "flakeLayers", label: "Flake layers", min: 1, max: 3, step: 1, fmt: (v) => String(Math.round(v)) },
     { group: "light", key: "twinkle", label: "Flake spin", min: 0, max: 1.5, step: 0.05, fmt: (v) => v.toFixed(2) + " turns/s" },
   ];
 
-  const STORE_KEY = "rainbow-breath-tuning-v1";
+  const STORE_KEY = "rainbow-breath-tuning-v2";
   const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   // developer mode (?dev, or #dev on the artifact link) shows the tuning drawer; the shared link always uses DEFAULTS
   const DEV = /[?&#]dev\b/i.test(location.search + location.hash);
@@ -295,7 +298,6 @@
       if (raw) {
         const saved = JSON.parse(raw);
         for (const k of Object.keys(DEFAULTS)) if (typeof saved[k] === "number" && isFinite(saved[k])) s[k] = saved[k];
-        // keep saved values inside the current slider ranges (ranges change as the look evolves)
         for (const c of CONTROLS) s[c.key] = Math.min(c.max, Math.max(c.min, s[c.key]));
       }
     } catch (e) { /* storage unavailable - defaults are fine */ }
@@ -308,19 +310,10 @@
   let S = loadSettings();
 
   // ---------- game state ----------
-  const game = { arches: [], current: 0, finished: false, draining: 0, started: false };
-  function newGame() {
-    game.arches = ARCH_COLORS.map((_, i) => ({ progress: 0, phase: 0, active: i === 0, amount: 0 }));
-    game.current = 0;
-    game.finished = false;
-    game.draining = 0;
-  }
-  function restart() {
-    for (const a of game.arches) a.active = false;
-    game.finished = false;
-    game.draining = FIXED.drainSeconds;
-  }
-  newGame();
+  // T = how far the light has travelled, in laps (keeps growing); the glow trail fades behind it.
+  const game = { T: 0, started: false, draining: 0, fade: 1 };
+  function restart() { game.draining = FIXED.drainSeconds; }
+  const lapSeconds = () => 2 * (S.inhale + S.exhale);
 
   // ---------- layout (CSS pixels) ----------
   let L = null;
@@ -331,31 +324,79 @@
     const cs = getComputedStyle(probe);
     return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
   }
+  // px per second of breath that fits a loop into an AW x AH box
+  function fitSpeed(AW, AH) {
+    const w = S.thickness * Math.min(AW, AH), rc = S.corner * w, qr = (Math.PI * rc) / 2;
+    return { w, rc, qr, k: Math.min((AW - w - 2 * rc + qr) / S.inhale, (AH - w - 2 * rc + qr) / S.exhale) };
+  }
   function computeLayout() {
     const W = window.innerWidth, Hh = window.innerHeight, ins = readInsets();
     const m = 14;
-    const left = ins.l + m, right = W - ins.r - m, top = ins.t + m, bottom = Hh - ins.b - m;
-    const AW = Math.max(50, right - left), AH = Math.max(50, bottom - top);
-    const H = S.span, k = FIXED.spacingRatio;
-    // Fill the width, and make the bands as thick as S.thickness allows; on short (landscape phone)
-    // screens thin them just enough for all seven to fit the height. The rainbow's height is
-    // R0 * ((1 - cos H) + a * (1 + (N - 1) * k * cos H)), so solve for the largest a that fits.
-    let a = S.thickness;
-    for (let it = 0; it < 6; it++) {
-      const R0w = AW / (2 * Math.sin(H) + a);
-      const aFit = (AH / R0w - (1 - Math.cos(H))) / (1 + (N - 1) * k * Math.cos(H));
-      a = Math.max(0.02, Math.min(S.thickness, aFit));
-    }
-    const b = a * k;
-    const hFactor = 1 + a - (1 - (N - 1) * b) * Math.cos(H);
-    const R0 = Math.min(AW / (2 * Math.sin(H) + a), AH / hFactor);
-    const w = a * R0, sp = b * R0;
-    const cx = left + AW / 2;
-    const cy = top + (AH - R0 * hFactor) / 2 + R0 * (1 + a / 2);
-    const Rin = R0 - (N - 1) * sp;
-    L = { cx, cy, R0, w, sp, H, R: Array.from({ length: N }, (_, i) => R0 - i * sp),
-          portraitSmall: w < 26 && Hh > W };
+    // leave room for the title and buttons only on narrow screens, where the loop could reach them
+    const left = ins.l + m, right = W - ins.r - m, top = ins.t + m + (W < 700 ? 44 : 0), bottom = Hh - ins.b - m - (W < 700 ? 18 : 0);
+    const AW = Math.max(60, right - left), AH = Math.max(60, bottom - top);
+    const f = fitSpeed(AW, AH);
+    const k = Math.max(1, f.k * S.size);
+    const hx = Math.max(0, (k * S.inhale - f.qr) / 2), hy = Math.max(0, (k * S.exhale - f.qr) / 2);
+    const len = 4 * hx + 4 * hy + 4 * f.qr;
+    L = { cx: left + AW / 2, cy: top + AH / 2, hx, hy, rc: f.rc, w: f.w, qr: f.qr, len,
+          phaseIn: 2 * hx + f.qr, phaseOut: 2 * hy + f.qr };
+    // on a phone, suggest turning it if the loop would be much bigger the other way round
+    const turned = fitSpeed(AH, AW);
+    L.turnHint = navigator.maxTouchPoints > 0 && turned.k > 1.3 * f.k
+      ? (W > Hh ? "Turn your phone upright for a bigger loop" : "Turn your phone sideways for a bigger loop") : "";
     placeCaption();
+  }
+
+  // distance along the loop's centre line, clockwise from the start of the top side (CSS px)
+  function pathX(dx, dy) {
+    const { hx, hy, rc, qr } = L;
+    const ax = Math.abs(dx), ay = Math.abs(dy);
+    const inX = ax <= hx, inY = ay <= hy;
+    let horiz = inX && !inY, vert = inY && !inX;
+    if (inX && inY) { horiz = hy - ay < hx - ax; vert = !horiz; }
+    if (horiz) return dy < 0 ? dx + hx : 4 * hx + 2 * qr + 2 * hy - (dx + hx);
+    if (vert) return dx > 0 ? 2 * hx + qr + (dy + hy) : 4 * hx + 3 * qr + 2 * hy + (hy - dy);
+    if (dx > 0 && dy < 0) return 2 * hx + (Math.atan2(dy + hy, dx - hx) + Math.PI / 2) * rc;
+    if (dx > 0) return 2 * hx + qr + 2 * hy + Math.atan2(dy - hy, dx - hx) * rc;
+    if (dy > 0) return 4 * hx + 2 * qr + 2 * hy + (Math.atan2(dy - hy, dx + hx) - Math.PI / 2) * rc;
+    return 4 * hx + 3 * qr + 4 * hy + (Math.atan2(dy + hy, dx + hx) + Math.PI) * rc;
+  }
+  // signed distance from the loop's centre line (negative = inside the rectangle)
+  function centreDist(dx, dy) {
+    const qx = Math.abs(dx) - L.hx, qy = Math.abs(dy) - L.hy;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - L.rc;
+  }
+  // loop position (0..1) measured from the middle of the top-left corner
+  function loopPos(dx, dy) {
+    return (((pathX(dx, dy) + 0.5 * L.qr) % L.len) + L.len) % L.len / L.len;
+  }
+  // screen point (CSS px) on the loop's centre line at loop position f (laps from the top-left corner's middle)
+  function pointAtLoop(f) {
+    const { hx, hy, rc, qr, len, cx, cy } = L;
+    let s = (((f % 1) + 1) % 1) * len - 0.5 * qr;
+    if (s < 0) s += len;
+    const arc = (ox, oy, a0, t) => [ox + rc * Math.cos(a0 + t / rc), oy + rc * Math.sin(a0 + t / rc)];
+    const segs = [
+      [2 * hx, (t) => [-hx + t, -(hy + rc)]],
+      [qr, (t) => arc(hx, -hy, -Math.PI / 2, t)],
+      [2 * hy, (t) => [hx + rc, -hy + t]],
+      [qr, (t) => arc(hx, hy, 0, t)],
+      [2 * hx, (t) => [hx - t, hy + rc]],
+      [qr, (t) => arc(-hx, hy, Math.PI / 2, t)],
+      [2 * hy, (t) => [-(hx + rc), hy - t]],
+      [qr, (t) => arc(-hx, -hy, Math.PI, t)],
+    ];
+    for (const [l, fn] of segs) {
+      if (s <= l) { const [x, y] = fn(s); return [cx + x, cy + y]; }
+      s -= l;
+    }
+    return [cx - hx, cy - hy - rc];
+  }
+  // which breath a loop position belongs to
+  function isInhaleAt(f) {
+    const a = L.phaseIn / L.len, b = a + L.phaseOut / L.len, c = b + L.phaseIn / L.len;
+    return f < a || (f >= b && f < c);
   }
 
   // ---------- canvas + renderers ----------
@@ -369,7 +410,7 @@
   }
 
   const WGSL = /* wgsl */ `
-struct Uniforms { v : array<vec4f, 21> };
+struct Uniforms { v : array<vec4f, 16> };
 @group(0) @binding(0) var<uniform> U : Uniforms;
 
 @vertex
@@ -418,13 +459,50 @@ fn flakeLayer(g : vec2f, seed : f32, t : f32, twk : f32, sizeCells : f32, pxCell
     let sdet = select(det, 0.0001, abs(det) < 0.0001);
     let u = (q.x * e2.y - q.y * e2.x) / sdet;
     let v = (e1.x * q.y - e1.y * q.x) / sdet;
-    let s = min(sizeCells * (0.6 + 0.7 * h2.x), 0.35); // a turned flake must stay within half a cell
+    let s = min(sizeCells * (0.6 + 0.7 * h2.x), 0.35);
     let aa = pxCell / max(abs(det), 0.15);
     let cv = (1.0 - smoothstep(s - aa, s + aa, abs(u))) * (1.0 - smoothstep(s - aa, s + aa, abs(v)));
     cover = max(cover, cv);
     glint = max(glint, cv * pow(abs(dot(n, hv)), 28.0));
   }
   return vec2f(cover, glint);
+}
+
+// distance along the loop's centre line, clockwise from the start of the top side
+fn pathX(d : vec2f, hx : f32, hy : f32, rc : f32) -> f32 {
+  let qr = 1.5707963 * rc;
+  let ad = abs(d);
+  let inX = ad.x <= hx;
+  let inY = ad.y <= hy;
+  var horiz = inX && !inY;
+  var vert = inY && !inX;
+  if (inX && inY) { horiz = (hy - ad.y) < (hx - ad.x); vert = !horiz; }
+  if (horiz) {
+    if (d.y < 0.0) { return d.x + hx; }
+    return 4.0 * hx + 2.0 * qr + 2.0 * hy - (d.x + hx);
+  }
+  if (vert) {
+    if (d.x > 0.0) { return 2.0 * hx + qr + (d.y + hy); }
+    return 4.0 * hx + 3.0 * qr + 2.0 * hy + (hy - d.y);
+  }
+  if (d.x > 0.0 && d.y < 0.0) { return 2.0 * hx + (atan2(d.y + hy, d.x - hx) + 1.5707963) * rc; }
+  if (d.x > 0.0) { return 2.0 * hx + qr + 2.0 * hy + atan2(d.y - hy, d.x - hx) * rc; }
+  if (d.y > 0.0) { return 4.0 * hx + 2.0 * qr + 2.0 * hy + (atan2(d.y - hy, d.x + hx) - 1.5707963) * rc; }
+  return 4.0 * hx + 3.0 * qr + 4.0 * hy + (atan2(d.y + hy, d.x + hx) + 3.1415927) * rc;
+}
+
+// rainbow colour at distance x along the loop
+fn paletteAt(x : f32, len : f32) -> vec3f {
+  let pos = x / len * 7.0;
+  let i0 = i32(floor(pos)) % 7;
+  return mix(U.v[8 + i0].xyz, U.v[8 + (i0 + 1) % 7].xyz, sstep(fract(pos)));
+}
+// glow trail brightness at distance x along the loop: bright just behind the front, fading over most of a lap
+fn trailLit(x : f32, len : f32, F : f32, travelled : f32, E : f32, trail : f32, fade : f32) -> f32 {
+  var behind = F - x;
+  if (behind < 0.0) { behind = behind + len; }
+  let visited = sstep((travelled - behind) / E + 1.0);
+  return sstep(behind / E) * (1.0 - sstep(behind / trail)) * visited * fade;
 }
 
 fn background(p : vec2f, res : vec2f, t : f32, dpr : f32) -> vec3f {
@@ -454,71 +532,81 @@ fn finishColor(c : vec3f) -> vec3f {
 fn fs(@builtin(position) fc : vec4f) -> @location(0) vec4f {
   let res = U.v[0].xy; let t = U.v[0].z; let dpr = U.v[0].w;
   let p = fc.xy;
-  let c = U.v[1].xy; let R0 = U.v[1].z; let w = U.v[1].w;
-  let sp = U.v[2].x; let H = U.v[2].y; let E = max(U.v[2].z, 0.001); let EW = max(U.v[2].w, 0.001);
-  let glow = U.v[3].x; let edgeGlow = U.v[3].y; let dim = U.v[3].z; let startCue = U.v[3].w;
-  let cueRamp = max(U.v[4].x, 0.001); let glitter = U.v[4].y; let sSize = max(U.v[4].z, 0.01); let sDens = max(U.v[4].w, 0.5);
-  let twk = U.v[5].x; let drift = U.v[5].y; let white = U.v[5].z; let halo = U.v[5].w;
-  let layers = U.v[20].x;
+  let c = U.v[1].xy; let hx = U.v[1].z; let hy = U.v[1].w;
+  let rc = U.v[2].x; let w = U.v[2].y; let len = U.v[2].z; let F = U.v[2].w;
+  let travelled = U.v[3].x; let E = max(U.v[3].y, 0.001); let EW = max(U.v[3].z, 0.001); let trail = max(U.v[3].w, 0.001);
+  let glow = U.v[4].x; let edgeGlow = U.v[4].y; let dim = U.v[4].z; let startCue = U.v[4].w;
+  let cueRamp = max(U.v[5].x, 0.001); let glitter = U.v[5].y; let sSize = max(U.v[5].z, 0.01); let sDens = max(U.v[5].w, 0.5);
+  let twk = U.v[6].x; let drift = U.v[6].y; let white = U.v[6].z; let halo = U.v[6].w;
+  let layers = U.v[7].x; let fade = U.v[7].y; let startOffset = U.v[7].z;
 
   var col = background(p, res, t, dpr);
   let d = p - c;
-  let r = length(d);
-  let angC = clamp(atan2(d.x, -d.y), -H, H);
+  let q = abs(d) - vec2f(hx, hy);
+  let sdf = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - rc;
+  let x = (pathX(d, hx, hy, rc) + startOffset) % len;
   let hw = 0.5 * w;
-  var bloom = vec3f(0.0);
-  for (var i = 0; i < 7; i = i + 1) {
-    let cd = U.v[6 + i];
-    let st = U.v[13 + i];
-    let ac = cd.xyz;
-    let P = st.x;
-    let act = st.y;
-    let R = R0 - f32(i) * sp;
-    let radial = vec2f(sin(angC), -cos(angC));
-    let tangent = vec2f(cos(angC), sin(angC));
-    let q = c + R * radial;
-    let rel = p - q;
-    let dist = length(rel);
-    // arch-local coordinates that keep running into the rounded end caps (no smearing past the ends)
-    let alongPx = angC * R + dot(rel, tangent);
-    let acrossPx = dot(rel, radial);
-    let mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, dist);
-    var s = (angC + H) / (2.0 * H);
-    s = mix(s, 1.0 - s, cd.w);
-    let Pp = P * (1.0 + E);
-    let lit = sstep((Pp - s) / E);
-    let hc = clamp(Pp - 0.5 * E, 0.0, 1.0);
-    let cue = mix(startCue, 1.0, sstep(P / cueRamp));
-    let head = sstep(1.0 - abs(hc - s) / EW) * act * cue;
-    let nAcross = clamp(acrossPx / hw, -1.0, 1.0);
-    let nn = clamp(dist / hw, 0.0, 1.0);
-    let hgt = sqrt(max(1.0 - nn * nn, 0.0));
-    let shade = 0.42 + 0.58 * hgt;
-    let spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
-    let base = ac * mix(dim, 1.0, lit) * shade + vec3f(spec * mix(0.12, 0.4, lit));
-    let em = ac * (lit * glow + head * edgeGlow);
-    var gl3 = vec3f(0.0);
-    if (mask > 0.0 && lit > 0.001 && glitter > 0.0) {
-      // up to three layers; deeper layers have more, smaller, dimmer, slower flakes on differently rotated grids
-      let lp = vec2f(alongPx / w, acrossPx / w);
-      var sparkle = 0.0;
-      for (var k = 0; k < 3; k = k + 1) {
-        let fk = f32(k);
-        if (fk >= layers) { break; }
-        let dens = sDens * (1.0 + 0.35 * fk);
-        let drifted = lp + vec2f(t * drift * (1.0 - 0.3 * fk), 0.0);
-        let rot = 0.2 + 0.61 * fk;
-        let cr = cos(rot); let sr = sin(rot);
-        let g = vec2f(cr * drifted.x - sr * drifted.y, sr * drifted.x + cr * drifted.y) * dens + vec2f(13.7 * fk, 5.3 * fk);
-        let fl = flakeLayer(g, f32(i) * 17.0 + fk * 101.0, t, twk, sSize * (1.0 - 0.22 * fk) * dens, dens / w);
-        sparkle = sparkle + (fl.x * 0.18 + fl.y * 3.2) * (1.0 - 0.25 * fk);
-      }
-      gl3 = mix(ac, vec3f(1.0), white) * (sparkle * lit * glitter * hgt);
+  let mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, abs(sdf));
+
+  let ac = paletteAt(x, len);
+  let lit = trailLit(x, len, F, travelled, E, trail, fade);
+  var ahead = x - F;
+  if (ahead > 0.5 * len) { ahead = ahead - len; }
+  if (ahead < -0.5 * len) { ahead = ahead + len; }
+  let cue = mix(startCue, 1.0, sstep(travelled / cueRamp));
+  let headLag = 0.5 * E * clamp(travelled / (0.5 * E), 0.0, 1.0); // sits on the start point until tracing begins
+  let head = sstep(1.0 - abs(ahead + headLag) / EW) * cue * fade;
+
+  let nAcross = clamp(sdf / hw, -1.0, 1.0);
+  let hgt = sqrt(max(1.0 - nAcross * nAcross, 0.0));
+  let shade = 0.42 + 0.58 * hgt;
+  let spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
+  let base = ac * mix(dim, 1.0, lit) * shade + vec3f(spec * mix(0.12, 0.4, lit));
+  let em = ac * (lit * glow + head * edgeGlow);
+  var gl3 = vec3f(0.0);
+  if (mask > 0.0 && lit > 0.001 && glitter > 0.0) {
+    // up to three layers; deeper layers have more, smaller, dimmer, slower flakes on differently rotated grids
+    let lp = vec2f(x / w, sdf / w);
+    var sparkle = 0.0;
+    for (var k = 0; k < 3; k = k + 1) {
+      let fk = f32(k);
+      if (fk >= layers) { break; }
+      let dens = sDens * (1.0 + 0.35 * fk);
+      let drifted = lp + vec2f(t * drift * (1.0 - 0.3 * fk), 0.0);
+      let rot = 0.2 + 0.61 * fk;
+      let cr = cos(rot); let sr = sin(rot);
+      let g = vec2f(cr * drifted.x - sr * drifted.y, sr * drifted.x + cr * drifted.y) * dens + vec2f(13.7 * fk, 5.3 * fk);
+      let fl = flakeLayer(g, 17.0 + fk * 101.0, t, twk, sSize * (1.0 - 0.22 * fk) * dens, dens / w);
+      sparkle = sparkle + (fl.x * 0.18 + fl.y * 3.2) * (1.0 - 0.25 * fk);
     }
-    col = mix(col, base + em + gl3, mask);
-    let outside = max(dist - hw, 0.0);
-    bloom = bloom + ac * (lit * glow * 0.55 + head * edgeGlow * 0.6) * exp(-outside / (0.85 * w)) * halo * (1.0 - mask);
+    gl3 = mix(ac, vec3f(1.0), white) * (sparkle * lit * glitter * hgt);
   }
+  col = mix(col, base + em + gl3, mask);
+  // halo: a tight glow along the lit trail, plus a round glow around the moving head.
+  // Inside the rectangle the four sides' glows are added together, so no seams show along the diagonals.
+  let kd = 1.0 / (0.45 * w);
+  var trailGlow = vec3f(0.0);
+  if (sdf > 0.0) {
+    trailGlow = ac * lit * exp(-max(sdf - hw, 0.0) * kd);
+  } else {
+    let qr = 1.5707963 * rc;
+    let X = hx + rc;
+    let Y = hy + rc;
+    let cxs = clamp(d.x, -hx, hx);
+    let cys = clamp(d.y, -hy, hy);
+    let xt = (cxs + hx + startOffset) % len;
+    let xr = (2.0 * hx + qr + cys + hy + startOffset) % len;
+    let xb = (3.0 * hx + 2.0 * qr + 2.0 * hy - cxs + startOffset) % len;
+    let xl = (4.0 * hx + 3.0 * qr + 3.0 * hy - cys + startOffset) % len;
+    trailGlow = paletteAt(xt, len) * trailLit(xt, len, F, travelled, E, trail, fade) * exp(-max(d.y + Y - hw, 0.0) * kd)
+              + paletteAt(xr, len) * trailLit(xr, len, F, travelled, E, trail, fade) * exp(-max(X - d.x - hw, 0.0) * kd)
+              + paletteAt(xb, len) * trailLit(xb, len, F, travelled, E, trail, fade) * exp(-max(Y - d.y - hw, 0.0) * kd)
+              + paletteAt(xl, len) * trailLit(xl, len, F, travelled, E, trail, fade) * exp(-max(d.x + X - hw, 0.0) * kd);
+  }
+  let hp = U.v[15];
+  let headDist = max(length(p - hp.xy) - hw, 0.0);
+  let bloom = (trailGlow * glow * 0.55
+             + paletteAt(hp.z, len) * edgeGlow * 0.6 * cue * fade * exp(-headDist / (0.8 * w))) * halo * (1.0 - mask);
   return vec4f(finishColor(col + bloom), 1.0);
 }
 `;
@@ -531,7 +619,7 @@ void main() {
 
   const GLSL_FS = `#version 300 es
 precision highp float;
-uniform vec4 u[21];
+uniform vec4 u[16];
 out vec4 outColor;
 
 float hash12(vec2 p) {
@@ -574,13 +662,50 @@ vec2 flakeLayer(vec2 g, float seed, float t, float twk, float sizeCells, float p
     float sdet = abs(det) < 0.0001 ? 0.0001 : det;
     float u = (q.x * e2.y - q.y * e2.x) / sdet;
     float v = (e1.x * q.y - e1.y * q.x) / sdet;
-    float s = min(sizeCells * (0.6 + 0.7 * h2.x), 0.35); // a turned flake must stay within half a cell
+    float s = min(sizeCells * (0.6 + 0.7 * h2.x), 0.35);
     float aa = pxCell / max(abs(det), 0.15);
     float cv = (1.0 - smoothstep(s - aa, s + aa, abs(u))) * (1.0 - smoothstep(s - aa, s + aa, abs(v)));
     cover = max(cover, cv);
     glint = max(glint, cv * pow(abs(dot(n, hv)), 28.0));
   }
   return vec2(cover, glint);
+}
+
+// distance along the loop's centre line, clockwise from the start of the top side
+float pathX(vec2 d, float hx, float hy, float rc) {
+  float qr = 1.5707963 * rc;
+  vec2 ad = abs(d);
+  bool inX = ad.x <= hx;
+  bool inY = ad.y <= hy;
+  bool horiz = inX && !inY;
+  bool vert = inY && !inX;
+  if (inX && inY) { horiz = (hy - ad.y) < (hx - ad.x); vert = !horiz; }
+  if (horiz) {
+    if (d.y < 0.0) return d.x + hx;
+    return 4.0 * hx + 2.0 * qr + 2.0 * hy - (d.x + hx);
+  }
+  if (vert) {
+    if (d.x > 0.0) return 2.0 * hx + qr + (d.y + hy);
+    return 4.0 * hx + 3.0 * qr + 2.0 * hy + (hy - d.y);
+  }
+  if (d.x > 0.0 && d.y < 0.0) return 2.0 * hx + (atan(d.y + hy, d.x - hx) + 1.5707963) * rc;
+  if (d.x > 0.0) return 2.0 * hx + qr + 2.0 * hy + atan(d.y - hy, d.x - hx) * rc;
+  if (d.y > 0.0) return 4.0 * hx + 2.0 * qr + 2.0 * hy + (atan(d.y - hy, d.x + hx) - 1.5707963) * rc;
+  return 4.0 * hx + 3.0 * qr + 4.0 * hy + (atan(d.y + hy, d.x + hx) + 3.1415927) * rc;
+}
+
+// rainbow colour at distance x along the loop
+vec3 paletteAt(float x, float len) {
+  float pos = x / len * 7.0;
+  int i0 = int(floor(pos)) % 7;
+  return mix(u[8 + i0].xyz, u[8 + (i0 + 1) % 7].xyz, sstep(fract(pos)));
+}
+// glow trail brightness at distance x along the loop: bright just behind the front, fading over most of a lap
+float trailLit(float x, float len, float F, float travelled, float E, float trail, float fade) {
+  float behind = F - x;
+  if (behind < 0.0) behind += len;
+  float visited = sstep((travelled - behind) / E + 1.0);
+  return sstep(behind / E) * (1.0 - sstep(behind / trail)) * visited * fade;
 }
 
 vec3 background(vec2 p, vec2 res, float t, float dpr) {
@@ -609,75 +734,85 @@ vec3 finishColor(vec3 c) {
 void main() {
   vec2 res = u[0].xy; float t = u[0].z; float dpr = u[0].w;
   vec2 p = vec2(gl_FragCoord.x, res.y - gl_FragCoord.y);
-  vec2 c = u[1].xy; float R0 = u[1].z; float w = u[1].w;
-  float sp = u[2].x; float H = u[2].y; float E = max(u[2].z, 0.001); float EW = max(u[2].w, 0.001);
-  float glow = u[3].x; float edgeGlow = u[3].y; float dim = u[3].z; float startCue = u[3].w;
-  float cueRamp = max(u[4].x, 0.001); float glitter = u[4].y; float sSize = max(u[4].z, 0.01); float sDens = max(u[4].w, 0.5);
-  float twk = u[5].x; float drift = u[5].y; float white = u[5].z; float halo = u[5].w;
-  float layers = u[20].x;
+  vec2 c = u[1].xy; float hx = u[1].z; float hy = u[1].w;
+  float rc = u[2].x; float w = u[2].y; float len = u[2].z; float F = u[2].w;
+  float travelled = u[3].x; float E = max(u[3].y, 0.001); float EW = max(u[3].z, 0.001); float trail = max(u[3].w, 0.001);
+  float glow = u[4].x; float edgeGlow = u[4].y; float dim = u[4].z; float startCue = u[4].w;
+  float cueRamp = max(u[5].x, 0.001); float glitter = u[5].y; float sSize = max(u[5].z, 0.01); float sDens = max(u[5].w, 0.5);
+  float twk = u[6].x; float drift = u[6].y; float white = u[6].z; float halo = u[6].w;
+  float layers = u[7].x; float fade = u[7].y; float startOffset = u[7].z;
 
   vec3 col = background(p, res, t, dpr);
   vec2 d = p - c;
-  float r = length(d);
-  float angC = clamp(atan(d.x, -d.y), -H, H);
+  vec2 q = abs(d) - vec2(hx, hy);
+  float sdf = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - rc;
+  float x = mod(pathX(d, hx, hy, rc) + startOffset, len);
   float hw = 0.5 * w;
-  vec3 bloom = vec3(0.0);
-  for (int i = 0; i < 7; i++) {
-    vec4 cd = u[6 + i];
-    vec4 st = u[13 + i];
-    vec3 ac = cd.xyz;
-    float P = st.x;
-    float act = st.y;
-    float R = R0 - float(i) * sp;
-    vec2 radial = vec2(sin(angC), -cos(angC));
-    vec2 tangent = vec2(cos(angC), sin(angC));
-    vec2 q = c + R * radial;
-    vec2 rel = p - q;
-    float dist = length(rel);
-    // arch-local coordinates that keep running into the rounded end caps (no smearing past the ends)
-    float alongPx = angC * R + dot(rel, tangent);
-    float acrossPx = dot(rel, radial);
-    float mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, dist);
-    float s = (angC + H) / (2.0 * H);
-    s = mix(s, 1.0 - s, cd.w);
-    float Pp = P * (1.0 + E);
-    float lit = sstep((Pp - s) / E);
-    float hc = clamp(Pp - 0.5 * E, 0.0, 1.0);
-    float cue = mix(startCue, 1.0, sstep(P / cueRamp));
-    float head = sstep(1.0 - abs(hc - s) / EW) * act * cue;
-    float nAcross = clamp(acrossPx / hw, -1.0, 1.0);
-    float nn = clamp(dist / hw, 0.0, 1.0);
-    float hgt = sqrt(max(1.0 - nn * nn, 0.0));
-    float shade = 0.42 + 0.58 * hgt;
-    float spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
-    vec3 base = ac * mix(dim, 1.0, lit) * shade + vec3(spec * mix(0.12, 0.4, lit));
-    vec3 em = ac * (lit * glow + head * edgeGlow);
-    vec3 gl3 = vec3(0.0);
-    if (mask > 0.0 && lit > 0.001 && glitter > 0.0) {
-      // up to three layers; deeper layers have more, smaller, dimmer, slower flakes on differently rotated grids
-      vec2 lp = vec2(alongPx / w, acrossPx / w);
-      float sparkle = 0.0;
-      for (int k = 0; k < 3; k++) {
-        float fk = float(k);
-        if (fk >= layers) break;
-        float dens = sDens * (1.0 + 0.35 * fk);
-        vec2 drifted = lp + vec2(t * drift * (1.0 - 0.3 * fk), 0.0);
-        float rot = 0.2 + 0.61 * fk;
-        float cr = cos(rot), sr = sin(rot);
-        vec2 g = vec2(cr * drifted.x - sr * drifted.y, sr * drifted.x + cr * drifted.y) * dens + vec2(13.7 * fk, 5.3 * fk);
-        vec2 fl = flakeLayer(g, float(i) * 17.0 + fk * 101.0, t, twk, sSize * (1.0 - 0.22 * fk) * dens, dens / w);
-        sparkle += (fl.x * 0.18 + fl.y * 3.2) * (1.0 - 0.25 * fk);
-      }
-      gl3 = mix(ac, vec3(1.0), white) * (sparkle * lit * glitter * hgt);
+  float mask = 1.0 - smoothstep(hw - 1.0, hw + 0.75, abs(sdf));
+
+  vec3 ac = paletteAt(x, len);
+  float lit = trailLit(x, len, F, travelled, E, trail, fade);
+  float ahead = x - F;
+  if (ahead > 0.5 * len) ahead -= len;
+  if (ahead < -0.5 * len) ahead += len;
+  float cue = mix(startCue, 1.0, sstep(travelled / cueRamp));
+  float headLag = 0.5 * E * clamp(travelled / (0.5 * E), 0.0, 1.0); // sits on the start point until tracing begins
+  float head = sstep(1.0 - abs(ahead + headLag) / EW) * cue * fade;
+
+  float nAcross = clamp(sdf / hw, -1.0, 1.0);
+  float hgt = sqrt(max(1.0 - nAcross * nAcross, 0.0));
+  float shade = 0.42 + 0.58 * hgt;
+  float spec = pow(clamp(1.0 - abs(nAcross + 0.3) * 2.4, 0.0, 1.0), 3.0) * hgt;
+  vec3 base = ac * mix(dim, 1.0, lit) * shade + vec3(spec * mix(0.12, 0.4, lit));
+  vec3 em = ac * (lit * glow + head * edgeGlow);
+  vec3 gl3 = vec3(0.0);
+  if (mask > 0.0 && lit > 0.001 && glitter > 0.0) {
+    // up to three layers; deeper layers have more, smaller, dimmer, slower flakes on differently rotated grids
+    vec2 lp = vec2(x / w, sdf / w);
+    float sparkle = 0.0;
+    for (int k = 0; k < 3; k++) {
+      float fk = float(k);
+      if (fk >= layers) break;
+      float dens = sDens * (1.0 + 0.35 * fk);
+      vec2 drifted = lp + vec2(t * drift * (1.0 - 0.3 * fk), 0.0);
+      float rot = 0.2 + 0.61 * fk;
+      float cr = cos(rot), sr = sin(rot);
+      vec2 g = vec2(cr * drifted.x - sr * drifted.y, sr * drifted.x + cr * drifted.y) * dens + vec2(13.7 * fk, 5.3 * fk);
+      vec2 fl = flakeLayer(g, 17.0 + fk * 101.0, t, twk, sSize * (1.0 - 0.22 * fk) * dens, dens / w);
+      sparkle += (fl.x * 0.18 + fl.y * 3.2) * (1.0 - 0.25 * fk);
     }
-    col = mix(col, base + em + gl3, mask);
-    float outside = max(dist - hw, 0.0);
-    bloom += ac * (lit * glow * 0.55 + head * edgeGlow * 0.6) * exp(-outside / (0.85 * w)) * halo * (1.0 - mask);
+    gl3 = mix(ac, vec3(1.0), white) * (sparkle * lit * glitter * hgt);
   }
+  col = mix(col, base + em + gl3, mask);
+  // halo: a tight glow along the lit trail, plus a round glow around the moving head.
+  // Inside the rectangle the four sides' glows are added together, so no seams show along the diagonals.
+  float kd = 1.0 / (0.45 * w);
+  vec3 trailGlow = vec3(0.0);
+  if (sdf > 0.0) {
+    trailGlow = ac * lit * exp(-max(sdf - hw, 0.0) * kd);
+  } else {
+    float qr = 1.5707963 * rc;
+    float X = hx + rc;
+    float Y = hy + rc;
+    float cxs = clamp(d.x, -hx, hx);
+    float cys = clamp(d.y, -hy, hy);
+    float xt = mod(cxs + hx + startOffset, len);
+    float xr = mod(2.0 * hx + qr + cys + hy + startOffset, len);
+    float xb = mod(3.0 * hx + 2.0 * qr + 2.0 * hy - cxs + startOffset, len);
+    float xl = mod(4.0 * hx + 3.0 * qr + 3.0 * hy - cys + startOffset, len);
+    trailGlow = paletteAt(xt, len) * trailLit(xt, len, F, travelled, E, trail, fade) * exp(-max(d.y + Y - hw, 0.0) * kd)
+              + paletteAt(xr, len) * trailLit(xr, len, F, travelled, E, trail, fade) * exp(-max(X - d.x - hw, 0.0) * kd)
+              + paletteAt(xb, len) * trailLit(xb, len, F, travelled, E, trail, fade) * exp(-max(Y - d.y - hw, 0.0) * kd)
+              + paletteAt(xl, len) * trailLit(xl, len, F, travelled, E, trail, fade) * exp(-max(d.x + X - hw, 0.0) * kd);
+  }
+  vec4 hp = u[15];
+  float headDist = max(length(p - hp.xy) - hw, 0.0);
+  vec3 bloom = (trailGlow * glow * 0.55
+             + paletteAt(hp.z, len) * edgeGlow * 0.6 * cue * fade * exp(-headDist / (0.8 * w))) * halo * (1.0 - mask);
   outColor = vec4(finishColor(col + bloom), 1.0);
 }`;
 
-  const U = new Float32Array(21 * 4);
+  const U = new Float32Array(16 * 4);
 
   async function initWebGPU(cv) {
     if (!navigator.gpu) return null;
@@ -789,7 +924,6 @@ void main() {
       pointer.y = e.clientY;
       game.started = true;
       requestWakeLock();
-      if (game.finished) restart();
     });
     cv.addEventListener("pointermove", (e) => {
       if (e.pointerType === "mouse") { pointer.present = true; pointer.x = e.clientX; pointer.y = e.clientY; return; }
@@ -802,119 +936,85 @@ void main() {
     cv.addEventListener("pointerup", lift);
     cv.addEventListener("pointercancel", lift);
     cv.addEventListener("lostpointercapture", lift);
+    cv.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") pointer.present = false; });
+    cv.addEventListener("contextmenu", (e) => e.preventDefault());
     const release = () => { pointer.present = false; pointer.id = null; };
     window.addEventListener("blur", release);
     document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "visible") release(); });
-    cv.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") pointer.present = false; });
-    cv.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
-  // true when the pointer is inside the forgiving band around arch i (and a little past its ends)
-  function isNear(i) {
+  // true when the pointer is inside the forgiving band around the loop
+  function isNear() {
     if (!pointer.present || !L) return false;
-    const dx = pointer.x - L.cx, dy = pointer.y - L.cy;
-    const r = Math.hypot(dx, dy);
-    const ang = Math.atan2(dx, -dy);
-    const R = L.R[i];
-    const tol = 0.5 * L.w * S.hoverScale;
-    return Math.abs(r - R) <= tol && Math.abs(ang) <= L.H + tol / R;
+    return Math.abs(centreDist(pointer.x - L.cx, pointer.y - L.cy)) <= 0.5 * L.w * S.hoverScale;
   }
-
-  // how far along arch i the finger is, 0 at the arch's start and 1 at its end (respects in/out direction)
-  function fingerAlong(i) {
-    const ang = Math.max(-L.H, Math.min(L.H, Math.atan2(pointer.x - L.cx, -(pointer.y - L.cy))));
-    const s = (ang + L.H) / (2 * L.H);
-    return isInhale(i) ? s : 1 - s;
-  }
-  // progress that puts the glowing front just ahead of the finger, so the finger never hides it
-  function followTarget(i) {
-    const f = fingerAlong(i);
-    if (S.lead >= 1 || f >= 0.97) return 1;
-    const E = S.edgeSoft;
-    return Math.max(0, Math.min(1, (f + S.lead + 0.5 * E) / (1 + E)));
+  // travel target that puts the glowing front just ahead of the finger, so the finger never hides it
+  function followTarget() {
+    const f = loopPos(pointer.x - L.cx, pointer.y - L.cy);
+    let delta = f - (game.T - Math.floor(game.T));
+    delta -= Math.round(delta); // nearest way round, in -0.5..0.5 laps
+    return game.T + delta + (S.lead * L.w) / L.len + 0.5 * S.edgeSoft;
   }
 
   // ---------- update ----------
   function update(dt) {
-    const fade = Math.max(S.handover, 0.01);
-    for (const a of game.arches) {
-      const target = a.active ? 1 : 0;
-      const delta = Math.max(-dt / fade, Math.min(dt / fade, target - a.amount));
-      a.amount += delta;
-    }
     if (game.draining > 0) {
       game.draining -= dt;
-      for (const a of game.arches) a.progress = Math.max(0, a.progress - dt / FIXED.drainSeconds);
-      if (game.draining <= 0) newGame();
+      game.fade = Math.max(0, game.draining / FIXED.drainSeconds);
+      if (game.draining <= 0) { game.T = 0; game.fade = 1; }
       return;
     }
-    if (game.finished) return;
-    const i = game.current, a = game.arches[i];
-    // the light follows the finger along the arch, but never faster than the breath; past autoFrom it finishes on its own
-    let target = a.progress;
-    if (a.progress >= S.autoFrom) target = 1;
-    else if (isNear(i)) target = followTarget(i);
-    if (target > a.progress) {
-      a.phase = 1;
-      const secs = Math.max(isInhale(i) ? S.inhale : S.exhale, 0.1);
-      a.progress = Math.min(target, a.progress + dt / secs);
-      if (a.progress >= 1) {
-        a.phase = 2;
-        a.active = false;
-        if (i + 1 < N) { game.current = i + 1; game.arches[i + 1].active = true; game.arches[i + 1].progress = 0; }
-        else game.finished = true;
-      }
+    // the light follows the finger round the loop, but never faster than the breath
+    if (isNear()) {
+      const target = followTarget();
+      if (target > game.T) game.T = Math.min(target, game.T + dt / Math.max(lapSeconds(), 1));
     }
   }
 
   function packUniforms(time) {
-    const k = dpr;
+    const k = dpr, len = L.len;
+    const frac = game.T - Math.floor(game.T);
     U.set([canvas.width, canvas.height, time, k], 0);
-    U.set([L.cx * k, L.cy * k, L.R0 * k, L.w * k], 4);
-    U.set([L.sp * k, L.H, S.edgeSoft, FIXED.edgeWidth], 8);
-    U.set([S.glow, FIXED.edgeGlow, FIXED.dim, S.startCue], 12);
-    U.set([FIXED.cueRamp, S.glitter, S.flakeSize, S.flakeDensity], 16);
-    U.set([S.flakeLayers, 0, 0, 0], 80);
-    U.set([reduceMotion ? S.twinkle * 0.4 : S.twinkle, reduceMotion ? 0 : FIXED.drift, FIXED.whiteness, FIXED.halo], 20);
-    for (let i = 0; i < N; i++) {
-      const c = ARCH_COLORS[i];
-      U.set([c[0], c[1], c[2], isInhale(i) ? 0 : 1], 24 + i * 4);
-      U.set([game.arches[i].progress, game.arches[i].amount, 0, 0], 52 + i * 4);
-    }
+    U.set([L.cx * k, L.cy * k, L.hx * k, L.hy * k], 4);
+    U.set([L.rc * k, L.w * k, len * k, frac * len * k], 8);
+    U.set([Math.min(game.T, 2) * len * k, S.edgeSoft * len * k, FIXED.edgeWidth * len * k, S.trail * len * k], 12);
+    U.set([S.glow, FIXED.edgeGlow, FIXED.dim, S.startCue], 16);
+    U.set([FIXED.cueRamp * len * k, S.glitter, S.flakeSize, S.flakeDensity], 20);
+    U.set([reduceMotion ? S.twinkle * 0.4 : S.twinkle, reduceMotion ? 0 : FIXED.drift, FIXED.whiteness, FIXED.halo], 24);
+    U.set([S.flakeLayers, game.fade, 0.5 * L.qr * k, 0], 28);
+    for (let i = 0; i < PALETTE.length; i++) U.set([PALETTE[i][0], PALETTE[i][1], PALETTE[i][2], 0], 32 + i * 4);
+    const hf = headPos(), hxy = pointAtLoop(hf);
+    U.set([hxy[0] * k, hxy[1] * k, hf * len * k, 0], 60);
   }
 
   // ---------- captions ----------
   const captionEl = document.getElementById("caption");
   const hintEl = document.getElementById("hint");
   let shownCaption = null, pendingCaption = null, captionTimer = 0;
+  // where the glowing head is (laps); like the shader, it sits on the start point until tracing begins
+  function headPos() {
+    const lag = 0.5 * S.edgeSoft * Math.min(1, game.T / (0.5 * S.edgeSoft));
+    return ((game.T - lag) % 1 + 1) % 1;
+  }
   function wantedCaption() {
     if (game.draining > 0) return "";
-    if (game.finished) return "Seven slow breaths. Tap to begin again.";
-    const i = game.current;
-    if (!game.started && i === 0) return "Trace the glowing arch · breathe in";
-    return isInhale(i) ? "breathe in" : "breathe out";
+    if (!game.started) return "Trace the glow · breathe in";
+    return isInhaleAt(headPos()) ? "breathe in" : "breathe out";
   }
-  // Nest the caption just under the violet arch: pick the highest position where the text box's
-  // top corners stay inside the arch's inner edge, shrinking the font if it would not fit.
+  // centre the caption inside the loop, shrinking the font until it fits the opening
   function placeCaption() {
     if (!L) return;
-    const inner = L.R[N - 1] - L.w / 2 - 6;
-    const bottomLimit = window.innerHeight - readInsets().b - 8;
-    let size = Math.min(32, Math.max(18, Math.min(window.innerWidth, window.innerHeight) * 0.06));
+    const roomW = 2 * (L.hx + L.rc) - L.w - 24, roomH = 2 * (L.hy + L.rc) - L.w - 16;
+    let size = Math.min(30, Math.max(16, Math.min(window.innerWidth, window.innerHeight) * 0.055));
+    captionEl.style.top = L.cy + "px";
     for (let tries = 0; tries < 8; tries++) {
       captionEl.style.fontSize = size.toFixed(1) + "px";
       const r = captionEl.getBoundingClientRect();
-      const halfW = r.width / 2, h = r.height;
-      if (inner > halfW) {
-        const y = L.cy + h / 2 - Math.sqrt(inner * inner - halfW * halfW) + 4;
-        if (y + h / 2 <= bottomLimit) { captionEl.style.top = y + "px"; return; }
-      }
-      size *= 0.85;
+      if (r.width <= roomW && r.height <= roomH) return;
+      size *= 0.88;
     }
-    captionEl.style.top = (bottomLimit - 16) + "px";
   }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeCaption);
-
   function updateCaption() {
     const want = wantedCaption();
     if (want !== shownCaption && want !== pendingCaption) {
@@ -929,7 +1029,7 @@ void main() {
         captionEl.style.opacity = shownCaption ? "1" : "0";
       }, reduceMotion ? 0 : 450);
     }
-    const hint = L && L.portraitSmall ? "Turn your phone sideways for a bigger rainbow" : "";
+    const hint = L ? L.turnHint : "";
     if (hintEl.textContent !== hint) hintEl.textContent = hint;
   }
 
@@ -954,7 +1054,8 @@ void main() {
         S[c.key] = parseFloat(input.value);
         out.textContent = c.fmt(S[c.key]);
         saveSettings();
-        if (c.group === "shape") computeLayout();
+        // breath timings and shape settings both reshape the loop
+        if (c.group === "shape" || c.key === "inhale" || c.key === "exhale") computeLayout();
       });
       document.getElementById("group-" + c.group).appendChild(row);
     }
@@ -997,14 +1098,14 @@ void main() {
   }
 
   async function start(saved) {
-    if (saved && saved.game && Array.isArray(saved.game.arches) && saved.game.arches.length === N) Object.assign(game, saved.game);
+    if (saved && saved.game && typeof saved.game.T === "number") Object.assign(game, saved.game);
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
     renderer = await initRenderer();
     if (!renderer) {
       const msg = document.createElement("p");
       msg.className = "error";
-      msg.textContent = "This browser can't draw the rainbow. It needs WebGPU or WebGL 2, which recent Safari, Chrome and Firefox all have.";
+      msg.textContent = "This browser can't draw the loop. It needs WebGPU or WebGL 2, which recent Safari, Chrome and Firefox all have.";
       document.body.appendChild(msg);
       return;
     }
@@ -1017,10 +1118,12 @@ void main() {
   if (/[?&]test\b/.test(location.search)) {
     window.__rainbow = {
       step(seconds, dt = 1 / 60) { for (let t = 0; t < seconds; t += dt) update(dt); updateCaption(); return this.state(); },
-      state: () => ({ current: game.current, finished: game.finished, draining: game.draining,
-        arches: game.arches.map((a) => ({ p: +a.progress.toFixed(3), amt: +a.amount.toFixed(3), phase: a.phase, active: a.active })) }),
-      near: (i) => isNear(i),
+      state: () => ({ T: +game.T.toFixed(4), lap: Math.floor(game.T), started: game.started, draining: game.draining,
+        headInhale: isInhaleAt(headPos()) }),
+      near: () => isNear(),
       layout: () => L,
+      loopPos: (x, y) => loopPos(x - L.cx, y - L.cy),
+      settings: () => S,
     };
   }
 
